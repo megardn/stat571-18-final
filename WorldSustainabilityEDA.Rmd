@@ -49,7 +49,7 @@ names(data.processed)[8] <- "Adj.SavingParticulateEmissions"
 names(data.processed)[9] <- "CompulsoryEducationDurationYears"
 names(data.processed)[10] <- "ExportGoodsServices.GDP"
 names(data.processed)[11] <- "FinalConsumptionExpenditure.GDP"
-names(data.processed)[12] <- "ExportGoodsServices.GDP"
+names(data.processed)[12] <- "GDP.Current"
 names(data.processed)[13] <- "GDP.PerCapita.Current"
 names(data.processed)[14] <- "Govt.FinalConsumptionExpenditure.GDP"
 names(data.processed)[15] <- "GrossNationalExpenditure.GDP"
@@ -91,11 +91,11 @@ Now that we have processed our data, let's do some EDA
 
 First let's plot some measures by country. 
 
-Revalence of Regime Types
+Prevalence of Regime Types
 ```{r}
 
-ggplot(data = data.processed) +
-  geom_histogram(aes(x=RegimeType), fill='RegimeType')
+ggplot(data.processed, aes(x=fct_infreq(RegimeType), fill=fct_infreq(RegimeType))) +
+  geom_bar(show.legend = FALSE)
 
 ```
 
