@@ -89,14 +89,67 @@ write.csv(data.processed, "data/WorldSustainabilityData_Processed.csv", row.name
 
 Now that we have processed our data, let's do some EDA
 
-First let's plot some measures by country. 
-
-Prevalence of Regime Types
-```{r}
-
+First let's do some exploratory plotting. 
+```{r, fig.width=15, fig.height=6}
+# Frequency of Regime Types in our data
 ggplot(data.processed, aes(x=fct_infreq(RegimeType), fill=fct_infreq(RegimeType))) +
-  geom_bar(show.legend = FALSE)
+  geom_bar(show.legend = FALSE) +
+  xlab("Regime Type") +
+  ylab("Count") + 
+  ggtitle("Frequency of Regime Type")
 
+# World Region Representation
+ggplot(data.processed, aes(x=fct_infreq(WorldRegion), fill=fct_infreq(WorldRegion))) +
+  geom_bar(show.legend = FALSE) +
+  xlab("Region") +
+  ylab("Count") + 
+  ggtitle("Frequency of World Regions")
+
+# GDP per Capita by WorldRegion
+ggplot(data.processed, aes(y=GDP.PerCapita.Current, x=WorldRegion, fill=WorldRegion)) +
+  geom_boxplot(show.legend = FALSE) +
+  xlab("WorldRegion") +
+  ylab("GDP Per Capita") + 
+  ggtitle("Per Capita GDP by WorldRegion")
+
+# Internet Use by WorldRegion
+ggplot(data.processed, aes(y=IndividualsUsingInternet, x=WorldRegion, fill=WorldRegion)) +
+  geom_boxplot(show.legend = FALSE) +
+  xlab("WorldRegion") +
+  ylab("Internet Users") + 
+  ggtitle("Internet Users by WorldRegion")
 ```
 
+Ho wmuch do things change by year
+```{r, fig.width=15, fig.height=6}
+# EUROPE AND NORTH AMERICA
+# Do internet users incease over time
+ggplot(data.processed[data.processed$WorldRegion=="Europe and Northern America", ], aes(y=IndividualsUsingInternet, x=Year, colour=Country.Name)) +
+  geom_point(show.legend = FALSE) +
+  xlab("Year") +
+  ylab("Internet Users") + 
+  ggtitle("Internet Users by Year in Europe + North America")
+
+# Does urban population incease over time
+ggplot(data.processed[data.processed$WorldRegion=="Europe and Northern America", ], aes(y=UrbanPopulation.Prop, x=Year, colour=Country.Name)) +
+  geom_point(show.legend = FALSE) +
+  xlab("Year") +
+  ylab("Urban Population Proportion") + 
+  ggtitle("Proportion Urban Population by Year in Europe + North America")
+
+# ASIA
+# Do internet users incease over time
+ggplot(data.processed[data.processed$WorldRegion=="Central and Southern Asia", ], aes(y=IndividualsUsingInternet, x=Year, colour=Country.Name)) +
+  geom_point(show.legend = FALSE) +
+  xlab("Year") +
+  ylab("Internet Users") + 
+  ggtitle("Internet Users by Year in Central and Southern Asia")
+
+# Does urban population incease over time
+ggplot(data.processed[data.processed$WorldRegion=="Central and Southern Asia", ], aes(y=UrbanPopulation.Prop, x=Year, colour=Country.Name)) +
+  geom_point(show.legend = FALSE) +
+  xlab("Year") +
+  ylab("Urban Population Proportion") + 
+  ggtitle("Proportion Urban Population by Year in Central and Southern Asia")
+```
 
