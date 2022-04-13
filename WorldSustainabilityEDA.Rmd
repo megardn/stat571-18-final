@@ -12,6 +12,8 @@ library(pacman)
 p_load(dplyr, tidyverse, ggplot2, car, skimr, nnet, randomForest)
 ```
 
+## Processing
+
 Read in data and do initial exploration
 ```{r}
 data.raw <- read.csv('data/WorldSustainabilityDataset.csv', header = TRUE)
@@ -69,10 +71,32 @@ names(data.processed)[31] <- "UrbanPopulation.Prop"
 names(data.processed)[32] <- "WorldRegion"
 names(data.processed)
 ```
+Set Certain Things to Factor
+```{r}
+data.processed$RegimeType <- as.factor(data.processed$RegimeType)
+data.processed$WorldRegion <- as.factor(data.processed$WorldRegion)
+data.processed$WorldBankIncomeClass <- as.factor(data.processed$WorldBankIncomeClass)
+
+```
+
+
 Export the processed data
 ```{r, eval=FALSE}
 write.csv(data.processed, "data/WorldSustainabilityData_Processed.csv", row.names = FALSE)
 ```
 
+## EDA
+
+Now that we have processed our data, let's do some EDA
+
+First let's plot some measures by country. 
+
+Revalence of Regime Types
+```{r}
+
+ggplot(data = data.processed) +
+  geom_histogram(aes(x=RegimeType), fill='RegimeType')
+
+```
 
 
