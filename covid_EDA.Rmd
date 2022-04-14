@@ -254,19 +254,24 @@ ggplotly(plot_total_vac) # generate interactive plot
 # df_vac[df_vac$country == "Afghanistan",]
 # looks like some small islands have a very small population (e.g. Pitcairn has 47 current residents and they reported their vaccinations only once for all these people)
 
-# Solution: let's filter out countries with less than 6 data points (months) in total - which means they reported vaccinations for less than 1 year in total. Given that vaccinations started in later 2020 (so about 16 months ago), this should still be a generous cutoff. 
+# Solution: filter out countries for which 90% of their rows are NAs (these countries report vaccine rates consistently enough to keep).
+# Alternative: we could filter out countries with less than 6 data points (months) in total - which means they reported vaccinations for less than 1 year in total. Given that vaccinations started in later 2020 (so about 16 months ago), this should still be a generous cutoff. 
 df_vac_nona_clean <- df_vac %>%
   # first group by country and keep only countries that have at least 
-  group_by(country) %>%
-  # get an idea of percent NAs per country
-  # summarise(
-  #   n_na = sum(is.na(people_vaccinated_per_hundred)),
-  #   n_total = length(people_vaccinated_per_hundred),
-  #   pct_na = sum(is.na(people_vaccinated_per_hundred)) / length(people_vaccinated_per_hundred) * 100
-  # )
-  #  remove countries for which 90% of their rows are NAs (these countries report vaccine rates consistently enough to keep)
-  filter(sum(is.na(people_vaccinated_per_hundred)) / length(people_vaccinated_per_hundred) < 0.9) %>% # 
-  ungroup() %>%                                                                                                
+  
+  ########################### UNCOMMENT THIS TO FILTER OUT COUNTRIES THAT DID NOT PROVIDE ENOUGH VACCINATION REPORTS
+  # group_by(country) %>%
+  ## get an idea of percent NAs per country
+  ## summarise(
+  ##   n_na = sum(is.na(people_vaccinated_per_hundred)),
+  ##   n_total = length(people_vaccinated_per_hundred),
+  ##   pct_na = sum(is.na(people_vaccinated_per_hundred)) / length(people_vaccinated_per_hundred) * 100
+  ## )
+  ##  remove countries for which 90% of their rows are NAs (these countries report vaccine rates consistently enough to keep)
+  # filter(sum(is.na(people_vaccinated_per_hundred)) / length(people_vaccinated_per_hundred) < 0.9) %>% # 
+  # ungroup() %>%        
+  ###########################
+
   # filter to keep only non-NA in people_vaccinated_per_hundred
   drop_na(people_vaccinated_per_hundred) %>%
   # group by month, year
@@ -304,7 +309,7 @@ ggplotly(plot_total_vac) # generate interactive plot
 ```
 
   
-After removing countries that did not consistently report their vaccination rates (e.g., countries with more than 50% of their rows being NAs), this looks a lot cleaner!
+After removing countries that did not consistently report their vaccination rates (e.g., countries with more than 50% of their rows being NAs), this looks a lot cleaner! BUT NOT DOING THIS FOR NOW.
 
 
 Let's bin the latest reported vaccination rate for every country into 4 groups: 
@@ -532,7 +537,6 @@ plot_deaths_weekly <- vac_events_sub %>%
     geom_vline(data = vac_1_dose, aes(xintercept = as.numeric(date), text = sprintf("1st dose: %s", date)), linetype = 2, color = "black") +
     geom_vline(data = vac_2_doses, aes(xintercept = as.numeric(date), text = sprintf("2nd dose: %s", date)), linetype = 2, color = "grey40") +
     geom_vline(data = vac_3_doses, aes(xintercept = as.numeric(date), text = sprintf("3rd dose: %s", date)), linetype = 2, color = "grey50") +
-    geom_vline(data = vac_4_doses, aes(xintercept = as.numeric(date), text = sprintf("4th dose: %s", date)), linetype = 2, color = "grey60") +
     # geom_text(data = vac_start_df, aes(x = as.Date(date), y = 750000, label = date)) + # add static event labels
     theme_bw() +
     ggtitle("Worldwide daily new deaths and vaccine doses milestones") +
