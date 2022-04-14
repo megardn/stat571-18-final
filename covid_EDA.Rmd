@@ -68,15 +68,37 @@ df_cases <- df_cases %>%
   mutate(country = as.factor(country),
          date = lubridate::mdy(date),
          year = lubridate::year(date),
-         month_num = lubridate::month(date))
+         month_num = lubridate::month(date),
+         week = as.factor(lubridate::week(date))
+  )
 
 df_cases$month <- month.abb[df_cases$month_num] # convert to month names
 skim(df_cases)
+
+# create new monthly and weekly cases/deaths variables
+df_cases <- df_cases %>%
+  # monthly
+  group_by(month_num, year, country) %>% 
+  mutate(
+    monthly_new_cases = sum(daily_new_cases, na.rm = TRUE),
+    monthly_new_deaths = sum(daily_new_deaths, na.rm = TRUE),
+    month_year = make_date(year, month_num) 
+  ) %>%
+  ungroup() %>%
+  # weekly
+  group_by(week, year, country, month_num) %>% 
+  mutate(
+    weekly_new_cases = mean(daily_new_cases, na.rm = TRUE),
+    weekly_new_deaths = mean(daily_new_deaths, na.rm = TRUE),
+    month_year = make_date(year, month_num)
+    )
+
 
 df_vac <- read.csv("data/country_vaccinations.csv")
 # clean data
 df_vac <- df_vac %>%
   mutate(country = as.factor(country),
+         country = recode_factor(country, `United States` = "USA"),
          iso_code = as.factor(iso_code),
          vaccines = as.factor(vaccines),
          date = lubridate::ymd(date),
@@ -87,14 +109,14 @@ df_vac$month <- month.abb[df_vac$month_num] # convert to month names
 
 skim(df_vac)
 
-df_variants <- read.csv("data/covid-variants.csv")
-# clean data
-df_variants <- df_variants %>%
-  mutate(country = as.factor(location),
-         variant = as.factor(variant))  %>%
-  select(-location)
-
-skim(df_variants)
+# df_variants <- read.csv("data/covid-variants.csv")
+# # clean data
+# df_variants <- df_variants %>%
+#   mutate(country = as.factor(location),
+#          variant = as.factor(variant))  %>%
+#   select(-location)
+# 
+# skim(df_variants)
 
 ```
 
@@ -112,8 +134,8 @@ skim(df_variants)
 Let's first look at the evolution of COVID-19 cases from the start of the pandemic (March 2020) until the last census (March 2022).
 
 
-```{r}
 
+```{r}
 # let's see how the total cumulative covid cases evolved by country
 plot_cum_cases <- df_cases %>%
   # filter(country %in% c("USA", "China", "India")) %>% # to show only some countries
@@ -127,17 +149,17 @@ plot_cum_cases <- df_cases %>%
 
 ggplotly(plot_cum_cases)
 
-# create a new monthly cumulative cases variable
-df_cases_monthly <- df_cases %>%
-  group_by(month_num, year, country) %>% 
-  summarise(
-    monthly_new_cases = sum(daily_new_cases, na.rm = TRUE),
-    monthly_new_deaths = sum(daily_new_deaths, na.rm = TRUE)
-  ) %>%
-  mutate(month_year = make_date(year, month_num))
+# TODO
+# world map of cumulative cases
+
+```
+
+What about a monthly evolution? Let's see what that looks like: 
+
+```{r}
 
 # what about the number of new cases?
-plot_cases_monthly <- df_cases_monthly %>%
+plot_cases_monthly <- df_cases %>%
   ggplot(aes(x = month_year, y = monthly_new_cases, color = country, group = country)) + 
     geom_line(show.legend = FALSE) + 
     theme_bw() +
@@ -146,8 +168,10 @@ plot_cases_monthly <- df_cases_monthly %>%
 
 ggplotly(plot_cases_monthly)
 
+
+
 # and the number of new deaths?
-plot_deaths_monthly <- df_cases_monthly %>%
+plot_deaths_monthly <- df_cases %>%
   ggplot(aes(x = month_year, y = monthly_new_deaths, color = country, group = country)) + 
     geom_line(show.legend = FALSE) + 
     theme_bw() +
@@ -155,7 +179,12 @@ plot_deaths_monthly <- df_cases_monthly %>%
     theme(legend.position="bottom")
 
 ggplotly(plot_deaths_monthly)
+
+# TODO
+# world map of cumulative cases
 ```
+
+
 
 ### COVID-19 vaccinations
 
@@ -194,6 +223,7 @@ plot_total_vac <- df_vac_nona %>%
 
 ggplotly(plot_total_vac) # generate interactive plot
 
+
 ```
 
 **Observations:** 
@@ -207,6 +237,7 @@ ggplotly(plot_total_vac) # generate interactive plot
 
 * It would be interesting to plot current vaccination rates by income type (high vs low)? 
 * Maybe also plot the change in vaccination levels (some countries vaccinated very fast compared to others - what explains that? Access to the vaccine, smaller total population, both?) and/or the total number of vaccine doses (some countries already gave more than 3 shots, while others barely have started to vaccinate) by some country features
+* Group countries by their most current vaccination rate and plot number of cases or deaths (are the cases less for countries with higher vaccination rates?) 
 
 
 ```{r}
@@ -214,14 +245,15 @@ ggplotly(plot_total_vac) # generate interactive plot
 # more data cleaning
 # based on the vaccination plots above, we notice that some countries seem to have large "gaps" in their reporting of vaccination rates.
 # Let's take a look at a few of these to see what's going on:
-df_vac[df_vac$country == "Pitcairn",]
-df_vac_nona[df_vac_nona$country == "Pitcairn",] # they only report 4 times
-df_vac[df_vac$country == "Saint Helena",]
-df_vac_nona[df_vac_nona$country == "Saint Helena",] # they also only report 4 times
-df_vac[df_vac$country == "United Arab Emirates",]
-df_vac_nona[df_vac_nona$country == "United Arab Emirates",] # they also only report 4 times
-df_vac[df_vac$country == "Afghanistan",]
+# df_vac[df_vac$country == "Pitcairn",]
+# df_vac_nona[df_vac_nona$country == "Pitcairn",] # they only report 4 times
+# df_vac[df_vac$country == "Saint Helena",]
+# df_vac_nona[df_vac_nona$country == "Saint Helena",] # they also only report 4 times
+# df_vac[df_vac$country == "United Arab Emirates",]
+# df_vac_nona[df_vac_nona$country == "United Arab Emirates",] # they also only report 4 times
+# df_vac[df_vac$country == "Afghanistan",]
 # looks like some small islands have a very small population (e.g. Pitcairn has 47 current residents and they reported their vaccinations only once for all these people)
+
 # Solution: let's filter out countries with less than 6 data points (months) in total - which means they reported vaccinations for less than 1 year in total. Given that vaccinations started in later 2020 (so about 16 months ago), this should still be a generous cutoff. 
 df_vac_nona_clean <- df_vac %>%
   # first group by country and keep only countries that have at least 
@@ -232,8 +264,8 @@ df_vac_nona_clean <- df_vac %>%
   #   n_total = length(people_vaccinated_per_hundred),
   #   pct_na = sum(is.na(people_vaccinated_per_hundred)) / length(people_vaccinated_per_hundred) * 100
   # )
-  #  remove countries that have more than 50% NAs
-  filter(sum(is.na(people_vaccinated_per_hundred)) / length(people_vaccinated_per_hundred) < 0.5) %>% # (these countries did not consistently report vaccine rates)
+  #  remove countries for which 90% of their rows are NAs (these countries report vaccine rates consistently enough to keep)
+  filter(sum(is.na(people_vaccinated_per_hundred)) / length(people_vaccinated_per_hundred) < 0.9) %>% # 
   ungroup() %>%                                                                                                
   # filter to keep only non-NA in people_vaccinated_per_hundred
   drop_na(people_vaccinated_per_hundred) %>%
@@ -241,6 +273,8 @@ df_vac_nona_clean <- df_vac %>%
   group_by(month, year, country) %>%
   # select first available value of each month
   filter(date == min(date))
+
+
   
 # let's generate the same plots again to see how that looks:
 plot_vac_percent <- df_vac_nona_clean %>%
@@ -253,7 +287,7 @@ plot_vac_percent <- df_vac_nona_clean %>%
 
 ggplotly(plot_vac_percent) # generate interactive plot
 
-
+# let's plot again
 plot_total_vac <- df_vac_nona_clean %>%
   # filter(country %in% c("United States", "China", "India")) %>% # to show only some countries
   ggplot(aes(x = date, y = total_vaccinations_per_hundred, color = country, group = country)) + 
@@ -264,6 +298,9 @@ plot_total_vac <- df_vac_nona_clean %>%
 
 ggplotly(plot_total_vac) # generate interactive plot
 
+# TODO
+# world map of total number of vaccinations
+# world map of total number of vaccinations
 ```
 
   
@@ -284,15 +321,16 @@ box_pct_vac <- df_vac_nona_clean %>%
   group_by(country) %>%
   filter(date == max(date)) %>%
   # create new binning variable
-  mutate(binned_people_vaccinated_per_hundred = case_when(people_vaccinated_per_hundred < 20 ~ "Under 20%", 
-                                                          people_vaccinated_per_hundred >= 20 & people_vaccinated_per_hundred < 50 ~ "20-50%",
-                                                          people_vaccinated_per_hundred >= 50 & people_vaccinated_per_hundred < 80 ~ "50-80%",
-                                                          people_vaccinated_per_hundred >= 80 ~ "Above 80%"
+  mutate(binned_people_vaccinated_per_hundred = case_when(people_vaccinated_per_hundred < 30 ~ "Under 30%", 
+                                                          people_vaccinated_per_hundred >= 30 & people_vaccinated_per_hundred < 50 ~ "30-50%",
+                                                          people_vaccinated_per_hundred >= 50 & people_vaccinated_per_hundred < 70 ~ "50-70%",
+                                                          people_vaccinated_per_hundred >= 70 & people_vaccinated_per_hundred < 90 ~ "70-90%",
+                                                          people_vaccinated_per_hundred >= 90 ~ "Above 90%"
                                                           )) %>%
   ggplot(aes(x = forcats::fct_reorder(binned_people_vaccinated_per_hundred, -people_vaccinated_per_hundred, .fun = median), y = people_vaccinated_per_hundred, 
              group = binned_people_vaccinated_per_hundred, fill = binned_people_vaccinated_per_hundred, color = binned_people_vaccinated_per_hundred)) +
   geom_boxplot(alpha = 0.5) +
-  geom_jitter() +
+  geom_jitter(aes(text=sprintf("Country: %s<br> Rate: %s", country, people_vaccinated_per_hundred))) +
   labs(title = "Countries binned by their current vaccination rate",
        x = "Current vaccination rates (March 2022)",
        y = "Percent people vaccinated per 100 in total population",
@@ -300,19 +338,244 @@ box_pct_vac <- df_vac_nona_clean %>%
        fill = "") +
   theme_bw()
 
-ggplotly(box_pct_vac, tooltip="country")
+ggplotly(box_pct_vac, tooltip = "text")
 
 ```
 
 
-### Merging COVID-19 cases and vaccinations
+## Merging COVID-19 cases and vaccinations
 
 Let's now merge the COVID-19 cases and vaccination datasets. 
 
 ```{r}
 
+# merge the cases and vaccinations dataset by country and date keeping all the df_cases rows
+df_merged <- merge(df_cases, 
+                   df_vac_nona_clean[ , -which(names(df_vac_nona_clean) %in% c("year", "month_num","month"))], 
+                   by = c("country", "date"), all.x = TRUE)
+
+# check that the merge is correct
+# df_merged[df_merged$country == "Argentina",]
+# df_vac_nona_clean[df_vac_nona_clean$country == "Argentina",]
+# yep all seems good (most dates do not have vaccination reports, only certain ones like for instance 2022-03-01)
+
+# find dates corresponding to important vaccination milestones
+df_merged <- df_merged %>%
+  group_by(country) %>%
+  mutate(vaccination_events = as.factor(case_when(people_vaccinated_per_hundred >= 90 ~ "vac_90pct",
+                                        people_vaccinated_per_hundred >= 70 ~ "vac_70pct",
+                                        people_vaccinated_per_hundred >= 50 ~ "vac_50pct",
+                                        people_vaccinated_per_hundred >= 30 ~ "vac_30pct",
+                                        people_vaccinated_per_hundred >= 0 ~ "vac_start",
+                                        TRUE ~ "no")),
+         vaccination_events = replace(vaccination_events, duplicated(vaccination_events), NA) # keep only first occurrence of an event
+         )  
+
+# check outputs
+# df_merged[df_merged$country == "Sweden", c("date", "people_vaccinated_per_hundred", "vaccination_events")]
+
+# Add percent vaccinated bins variable to main df
+bins_df <- df_vac_nona_clean %>%
+  group_by(country) %>%
+  filter(date == max(date)) %>%
+  # create new binning variable
+  mutate(binned_people_vaccinated_per_hundred = case_when(people_vaccinated_per_hundred < 30 ~ "Under 30%", 
+                                                          people_vaccinated_per_hundred >= 30 & people_vaccinated_per_hundred < 50 ~ "30-50%",
+                                                          people_vaccinated_per_hundred >= 50 & people_vaccinated_per_hundred < 70 ~ "50-70%",
+                                                          people_vaccinated_per_hundred >= 70 & people_vaccinated_per_hundred < 90 ~ "70-90%",
+                                                          people_vaccinated_per_hundred >= 90 ~ "Above 90%"
+                                                          )) %>%
+  select(country, binned_people_vaccinated_per_hundred)
+
+# merge with main
+df_merged <- merge(df_merged, bins_df, by = c("country"), all.x = TRUE)
 
 
 ```
 
+### Plotting cases in relation to important vaccination milestones
 
+#### Percent vaccinated per hundred
+
+```{r}
+# filter some countries
+vac_events_sub <- df_merged %>%
+  filter(country %in% c("USA", "Brazil", "Cuba", "Italy", "France", "Germany", "Japan", "India", "Australia", "South Africa", "Egypt", "Sudan")) 
+
+# create vaccination start df
+vac_start_df <- vac_events_sub %>%
+  select(country, date, vaccination_events) %>%
+  filter(vaccination_events == "vac_start")
+
+# create vaccination 30% df
+vac_30_df <- vac_events_sub %>%
+  select(country, date, vaccination_events) %>%
+  filter(vaccination_events == "vac_30pct")
+
+# create vaccination 30% df
+vac_50_df <- vac_events_sub %>%
+  select(country, date, vaccination_events) %>%
+  filter(vaccination_events == "vac_50pct")
+
+# create vaccination 30% df
+vac_70_df <- vac_events_sub %>%
+  select(country, date, vaccination_events) %>%
+  filter(vaccination_events == "vac_70pct")
+
+# create vaccination 30% df
+vac_90_df <- vac_events_sub %>%
+  select(country, date, vaccination_events) %>%
+  filter(vaccination_events == "vac_90pct")
+
+
+# daily cases with weekly average number of new cases
+plot_cases_weekly <- vac_events_sub %>%
+  ggplot() + 
+    geom_histogram(aes(x = date, y = daily_new_cases, color = country, group = country), stat = "identity", alpha = 0.5, binwidth = 0.1) +
+    geom_line(aes(x = date, y = weekly_new_cases), color = "darkblue", show.legend = FALSE) + 
+    facet_wrap(~country) +
+    # this will generate some warnings when not all countries have all milestones, nothing to worry about
+    geom_vline(data = vac_start_df, aes(xintercept = as.numeric(date), text = sprintf("Start date: %s", date)), linetype = 2, color = "black") +
+    geom_vline(data = vac_30_df, aes(xintercept = as.numeric(date), text = sprintf("30 pct vaccinated: %s", date)), linetype = 2, color = "grey40") +
+    geom_vline(data = vac_50_df, aes(xintercept = as.numeric(date), text = sprintf("50 pct vaccinated: %s", date)), linetype = 2, color = "grey50") +
+    geom_vline(data = vac_70_df, aes(xintercept = as.numeric(date), text = sprintf("70 pct vaccinated: %s", date)), linetype = 2, color = "grey60") +
+    geom_vline(data = vac_90_df, aes(xintercept = as.numeric(date), text = sprintf("90 pct vaccinated: %s", date)), linetype = 2, color = "grey70") +
+    # geom_text(data = vac_start_df, aes(x = as.Date(date), y = 750000, label = date)) + # add static event labels
+    theme_bw() +
+    ggtitle("Worldwide daily new cases and vaccination milestones") +
+    theme(legend.position="bottom", axis.text.x = element_text(angle = 45, vjust = 0.5, hjust = 1))
+
+ggplotly(plot_cases_weekly, tooltip = "text")
+
+# and the number of new deaths?
+plot_deaths_weekly <- vac_events_sub %>%
+  ggplot() + 
+    geom_histogram(aes(x = date, y = daily_new_deaths, color = country, group = country), stat = "identity", alpha = 0.5, binwidth = 0.1) +
+    geom_line(aes(x = date, y = weekly_new_deaths), color = "darkblue", show.legend = FALSE) + 
+    facet_wrap(~country) +
+  # this will generate some warnings when not all countries have all milestones, nothing to worry about
+    geom_vline(data = vac_start_df, aes(xintercept = as.numeric(date), text = sprintf("Start date: %s", date)), linetype = 2, color = "black") +
+    geom_vline(data = vac_30_df, aes(xintercept = as.numeric(date), text = sprintf("30 pct vaccinated: %s", date)), linetype = 2, color = "grey40") +
+    geom_vline(data = vac_50_df, aes(xintercept = as.numeric(date), text = sprintf("50 pct vaccinated: %s", date)), linetype = 2, color = "grey50") +
+    geom_vline(data = vac_70_df, aes(xintercept = as.numeric(date), text = sprintf("70 pct vaccinated: %s", date)), linetype = 2, color = "grey60") +
+    geom_vline(data = vac_90_df, aes(xintercept = as.numeric(date), text = sprintf("90 pct vaccinated: %s", date)), linetype = 2, color = "grey70") +
+    # geom_text(data = vac_start_df, aes(x = as.Date(date), y = 750000, label = date)) + # add static event labels
+    theme_bw() +
+    ggtitle("Worldwide daily new deaths and vaccination milestones") +
+    theme(legend.position="bottom", axis.text.x = element_text(angle = 45))
+
+ggplotly(plot_deaths_weekly, tooltip = "text")
+```
+
+#### Total number of vaccine doses per hundred people
+
+```{r}
+# find dates corresponding to important vaccination milestones
+df_merged <- df_merged %>%
+  group_by(country) %>%
+  mutate(vaccine_dose_events = as.factor(case_when(total_vaccinations_per_hundred >= 300 ~ "3_doses",
+                                                   total_vaccinations_per_hundred >= 200 ~ "2_doses",
+                                                   total_vaccinations_per_hundred >= 100 ~ "1_dose",
+                                                   TRUE ~ "no")),
+         vaccine_dose_events = replace(vaccine_dose_events, duplicated(vaccine_dose_events), NA) # keep only first occurrence of an event
+         )  
+
+# check outputs
+# df_merged[df_merged$country == "Sweden", c("date", "total_vaccinations_per_hundred", "vaccine_dose_events")]
+```
+
+
+```{r}
+# filter some countries
+vac_events_sub <- df_merged %>%
+  filter(country %in% c("USA", "Brazil", "Cuba", "Italy", "France", "Germany", "Japan", "India", "Australia", "South Africa", "Egypt", "Sudan")) 
+
+# create 1st dose df
+vac_1_dose <- vac_events_sub %>%
+  select(country, date, vaccine_dose_events) %>%
+  filter(vaccine_dose_events == "1_dose")
+
+# create 2nd dose df
+vac_2_doses <- vac_events_sub %>%
+  select(country, date, vaccine_dose_events) %>%
+  filter(vaccine_dose_events == "2_doses")
+
+# create 3rd dose df
+vac_3_doses <- vac_events_sub %>%
+  select(country, date, vaccine_dose_events) %>%
+  filter(vaccine_dose_events == "3_doses")
+
+# daily cases with weekly average number of new cases
+plot_cases_weekly <- vac_events_sub %>%
+  ggplot() + 
+    geom_histogram(aes(x = date, y = daily_new_cases, color = country, group = country), stat = "identity", alpha = 0.5, binwidth = 0.1) +
+    geom_line(aes(x = date, y = weekly_new_cases), color = "darkblue", show.legend = FALSE) + 
+    facet_wrap(~country) +
+    # this will generate some warnings when not all countries have all milestones, nothing to worry about
+    geom_vline(data = vac_1_dose, aes(xintercept = as.numeric(date), text = sprintf("1st dose: %s", date)), linetype = 2, color = "black") +
+    geom_vline(data = vac_2_doses, aes(xintercept = as.numeric(date), text = sprintf("2nd dose: %s", date)), linetype = 2, color = "grey40") +
+    geom_vline(data = vac_3_doses, aes(xintercept = as.numeric(date), text = sprintf("3rd dose: %s", date)), linetype = 2, color = "grey50") +
+    # geom_text(data = vac_start_df, aes(x = as.Date(date), y = 750000, label = date)) + # add static event labels
+    theme_bw() +
+    ggtitle("Worldwide daily new cases and vaccine doses milestones") +
+    theme(legend.position="bottom", axis.text.x = element_text(angle = 45, vjust = 0.5, hjust = 1))
+
+ggplotly(plot_cases_weekly, tooltip = "text")
+
+# and the number of new deaths?
+plot_deaths_weekly <- vac_events_sub %>%
+  ggplot() + 
+    geom_histogram(aes(x = date, y = daily_new_deaths, color = country, group = country), stat = "identity", alpha = 0.5, binwidth = 0.1) +
+    geom_line(aes(x = date, y = weekly_new_deaths), color = "darkblue", show.legend = FALSE) + 
+    facet_wrap(~country) +
+  # this will generate some warnings when not all countries have all milestones, nothing to worry about
+    geom_vline(data = vac_1_dose, aes(xintercept = as.numeric(date), text = sprintf("1st dose: %s", date)), linetype = 2, color = "black") +
+    geom_vline(data = vac_2_doses, aes(xintercept = as.numeric(date), text = sprintf("2nd dose: %s", date)), linetype = 2, color = "grey40") +
+    geom_vline(data = vac_3_doses, aes(xintercept = as.numeric(date), text = sprintf("3rd dose: %s", date)), linetype = 2, color = "grey50") +
+    geom_vline(data = vac_4_doses, aes(xintercept = as.numeric(date), text = sprintf("4th dose: %s", date)), linetype = 2, color = "grey60") +
+    # geom_text(data = vac_start_df, aes(x = as.Date(date), y = 750000, label = date)) + # add static event labels
+    theme_bw() +
+    ggtitle("Worldwide daily new deaths and vaccine doses milestones") +
+    theme(legend.position="bottom", axis.text.x = element_text(angle = 45))
+
+ggplotly(plot_deaths_weekly, tooltip = "text")
+```
+
+### Covid case trends by vaccination group 
+
+
+Here, we visualize COVID new cases/deaths trends separately for each vaccination group (more than 90% vaccinated, more than 70% vaccinated, etc.). 
+
+```{r}
+
+# daily cases with weekly average number of new cases
+plot_cases_weekly <- df_merged %>%
+  ggplot() + 
+    geom_histogram(aes(x = date, y = daily_new_cases, 
+                       color = binned_people_vaccinated_per_hundred, 
+                       group = binned_people_vaccinated_per_hundred), stat = "identity", alpha = 0.5, binwidth = 0.1) +
+    geom_line(aes(x = date, y = weekly_new_cases), color = "darkblue", show.legend = FALSE) + 
+    facet_wrap(~binned_people_vaccinated_per_hundred) +
+    theme_bw() +
+    ggtitle("Worldwide daily new cases by vaccination rates") +
+    theme(legend.position="bottom", axis.text.x = element_text(angle = 45, vjust = 0.5, hjust = 1))
+
+ggplotly(plot_cases_weekly, tooltip = "text")
+
+# and the number of new deaths?
+plot_deaths_weekly <- df_merged %>%
+  ggplot() + 
+    geom_histogram(aes(x = date, y = daily_new_deaths, 
+                       color = binned_people_vaccinated_per_hundred,
+                       group = binned_people_vaccinated_per_hundred), stat = "identity", alpha = 0.5, binwidth = 0.1) +
+    geom_line(aes(x = date, y = weekly_new_deaths), color = "darkblue", show.legend = FALSE) + 
+    facet_wrap(~binned_people_vaccinated_per_hundred) +
+    theme_bw() +
+    ggtitle("Worldwide daily new deaths and vaccine doses milestones") +
+    theme(legend.position="bottom", axis.text.x = element_text(angle = 45))
+
+ggplotly(plot_deaths_weekly, tooltip = "text")
+
+
+```
+This isn't really showing something very meaningful, may want to cut off and look at cases for instance once at least 50% of people have been vaccinated, or once most people have had the 1st dose. 
