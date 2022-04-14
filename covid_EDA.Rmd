@@ -579,3 +579,10 @@ ggplotly(plot_deaths_weekly, tooltip = "text")
 
 ```
 This isn't really showing something very meaningful, may want to cut off and look at cases for instance once at least 50% of people have been vaccinated, or once most people have had the 1st dose. 
+
+
+```{r}
+# save merged df (this will be used to merge with the sustainability data)
+write.csv(df_merged, "data/covid_cases_vaccines_clean.csv")
+```
+
