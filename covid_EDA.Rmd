@@ -1,0 +1,318 @@
+---
+title: "COVID-19 EDA"
+author:
+- Diego G. Davila
+- Margaret Gardner
+- Joelle Bagautdinova
+date: 'Due before midnight, May 1st'
+output:
+  html_document:
+    code_folding: show
+    highlight: haddock
+    theme: lumen
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+    number_sections: yes
+  pdf_document:
+    toc_depth: '4'
+    number_sections: yes
+urlcolor: blue
+---
+
+# COVID-19 Datasets EDA
+
+```{r Setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width=8, fig.height=4)
+options(scipen = 0, digits = 3)  # controls base R output
+
+# Package setup
+if(!require("pacman")) install.packages("pacman")
+
+pacman::p_load(tidyverse, dplyr, ggplot2, ggthemes, data.table, lubridate,
+               GGally, RColorBrewer, ggsci, plotROC, usmap,
+               plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car)
+```
+
+**Overall goal:**
+
+In this EDA, we are interested in combining a worldwide daily COVID cases dataset with a vaccination and a COVID variants dataset to follow the worldwide dynamics of virus spread, variant emergence/spread and the effect of vaccination in mitigating the number of cases/deaths.These datasets were collected from the following sources:
+
+* [COVID vaccines](https://www.kaggle.com/datasets/gpreda/covid-world-vaccination-progress)
+* [COVID cases](https://www.kaggle.com/datasets/josephassaker/covid19-global-dataset)
+* [COVID variants](https://www.kaggle.com/datasets/gpreda/covid19-variants)
+
+
+**Relevant questions:** 
+
+* How did COVID-19 spread since the beginning of the pandemic (worldwide)?
+* How is vaccination affecting virus spread? 
+* Which country is using which vaccine?
+* In which country the vaccination program is more advanced?
+* Which country has higher daily vaccination rates (i.e. proportionally to its population)? Does this affect the number of cases/deaths?
+* What variants are sequenced and in which country?
+* Where did variants originate from and how did they spread over time?
+* Which regions show high vs low variant diversity (i.e. a dominant variant is proliferating)?
+* Does the type of dominant variant (e.g., delta, omicron) influence the efficicay of vaccines/number of cases/number of deaths?
+
+
+## Numerical EDA
+
+```{r}
+
+# load data
+df_cases <- read.csv("data/worldometer_coronavirus_daily_data.csv")
+
+# clean data
+df_cases <- df_cases %>%
+  mutate(country = as.factor(country),
+         date = lubridate::mdy(date),
+         year = lubridate::year(date),
+         month_num = lubridate::month(date))
+
+df_cases$month <- month.abb[df_cases$month_num] # convert to month names
+skim(df_cases)
+
+df_vac <- read.csv("data/country_vaccinations.csv")
+# clean data
+df_vac <- df_vac %>%
+  mutate(country = as.factor(country),
+         iso_code = as.factor(iso_code),
+         vaccines = as.factor(vaccines),
+         date = lubridate::ymd(date),
+         year = lubridate::year(date),
+         month_num = lubridate::month(date))
+
+df_vac$month <- month.abb[df_vac$month_num] # convert to month names
+
+skim(df_vac)
+
+df_variants <- read.csv("data/covid-variants.csv")
+# clean data
+df_variants <- df_variants %>%
+  mutate(country = as.factor(location),
+         variant = as.factor(variant))  %>%
+  select(-location)
+
+skim(df_variants)
+
+```
+
+* COVID cases: 
+  + all variables of interest have at least an 84% completion rate, so all variables are usable. 
+  + there are 225 unique countries listed in this dataset. 
+* Vaccines: 
+  + some variables such as `total_vaccinations` have low completion rates (<50%) as these are reported every other week/once a month in some countries. 
+
+## Visual EDA
+
+
+### COVID-19 cases 2020-2022
+
+Let's first look at the evolution of COVID-19 cases from the start of the pandemic (March 2020) until the last census (March 2022).
+
+
+```{r}
+
+# let's see how the total cumulative covid cases evolved by country
+plot_cum_cases <- df_cases %>%
+  # filter(country %in% c("USA", "China", "India")) %>% # to show only some countries
+  # group_by(month, year) %>% 
+  # filter(date == min(date)) %>% #  to show monthly evolution (curves are slightly less smooth)
+  ggplot(aes(x = date, y = cumulative_total_cases, color = country, group = country)) + 
+    geom_line(show.legend = FALSE) + 
+    theme_bw() +
+    ggtitle("Worldwide cumulative daily new cases") +
+    theme(legend.position="bottom")
+
+ggplotly(plot_cum_cases)
+
+# create a new monthly cumulative cases variable
+df_cases_monthly <- df_cases %>%
+  group_by(month_num, year, country) %>% 
+  summarise(
+    monthly_new_cases = sum(daily_new_cases, na.rm = TRUE),
+    monthly_new_deaths = sum(daily_new_deaths, na.rm = TRUE)
+  ) %>%
+  mutate(month_year = make_date(year, month_num))
+
+# what about the number of new cases?
+plot_cases_monthly <- df_cases_monthly %>%
+  ggplot(aes(x = month_year, y = monthly_new_cases, color = country, group = country)) + 
+    geom_line(show.legend = FALSE) + 
+    theme_bw() +
+    ggtitle("Worldwide monthly new cases") +
+    theme(legend.position="bottom")
+
+ggplotly(plot_cases_monthly)
+
+# and the number of new deaths?
+plot_deaths_monthly <- df_cases_monthly %>%
+  ggplot(aes(x = month_year, y = monthly_new_deaths, color = country, group = country)) + 
+    geom_line(show.legend = FALSE) + 
+    theme_bw() +
+    ggtitle("Worldwide monthly new deaths") +
+    theme(legend.position="bottom")
+
+ggplotly(plot_deaths_monthly)
+```
+
+### COVID-19 vaccinations
+
+Now, let's take a look at the evolution of vaccinations, which started in late 2020.  
+
+```{r}
+
+# get non-NA vaccination reports
+df_vac_nona <- df_vac %>%
+  # filter to keep only non-NA in people_vaccinated_per_hundred
+  drop_na(people_vaccinated_per_hundred) %>%
+  # group by month, year
+  group_by(month, year, country) %>%
+  # select first available value of each month
+  filter(date == min(date))
+  
+# let's see how the people_vaccinated_per_hundred evolved (ratio (in percent) between population immunized and total population up to the date in the country)
+plot_vac_percent <- df_vac_nona %>%
+  # filter(country %in% c("USA", "China", "India")) %>% # to show only some countries
+  ggplot(aes(x = date, y = people_vaccinated_per_hundred, color = country, group = country)) + 
+    geom_line(show.legend = FALSE) + 
+    theme_bw() +
+    ggtitle("People vaccinated with respect to the country's total population (%)") +
+    theme(legend.position="bottom")
+
+ggplotly(plot_vac_percent) # generate interactive plot
+
+# let's see how the people_vaccinated_per_hundred evolved (ratio (in percent) between vaccination number and total population up to the date in the country) 
+plot_total_vac <- df_vac_nona %>%
+  # filter(country %in% c("United States", "China", "India")) %>% # to show only some countries
+  ggplot(aes(x = date, y = total_vaccinations_per_hundred, color = country, group = country)) + 
+    geom_line(show.legend = FALSE) + 
+    theme_bw() +
+    ggtitle("Total number of vaccine doses administered per 100 people in the total population (%)") +
+    theme(legend.position="bottom")
+
+ggplotly(plot_total_vac) # generate interactive plot
+
+```
+
+**Observations:** 
+
+* Vaccination rates start in late 2020 and increase throughout 2021 and 2022. Some countries show a more drastic increase. 
+* A number of countries did not report their vaccination rates throughout the included time period (interrupted lines)
+* Vaccination rates vary widely, with some countries having most of their population vaccinated (90-100%) while others still report close to 0% vaccinated up until recently. 
+* The number of vaccines received in each country is also very variable, with most countries reporting between 0-2 vaccines administered per person, and 2 countries reporting over 3 vaccinations on average (Gibraltar and Cuba). 
+
+**Ideas:**
+
+* It would be interesting to plot current vaccination rates by income type (high vs low)? 
+* Maybe also plot the change in vaccination levels (some countries vaccinated very fast compared to others - what explains that? Access to the vaccine, smaller total population, both?) and/or the total number of vaccine doses (some countries already gave more than 3 shots, while others barely have started to vaccinate) by some country features
+
+
+```{r}
+
+# more data cleaning
+# based on the vaccination plots above, we notice that some countries seem to have large "gaps" in their reporting of vaccination rates.
+# Let's take a look at a few of these to see what's going on:
+df_vac[df_vac$country == "Pitcairn",]
+df_vac_nona[df_vac_nona$country == "Pitcairn",] # they only report 4 times
+df_vac[df_vac$country == "Saint Helena",]
+df_vac_nona[df_vac_nona$country == "Saint Helena",] # they also only report 4 times
+df_vac[df_vac$country == "United Arab Emirates",]
+df_vac_nona[df_vac_nona$country == "United Arab Emirates",] # they also only report 4 times
+df_vac[df_vac$country == "Afghanistan",]
+# looks like some small islands have a very small population (e.g. Pitcairn has 47 current residents and they reported their vaccinations only once for all these people)
+# Solution: let's filter out countries with less than 6 data points (months) in total - which means they reported vaccinations for less than 1 year in total. Given that vaccinations started in later 2020 (so about 16 months ago), this should still be a generous cutoff. 
+df_vac_nona_clean <- df_vac %>%
+  # first group by country and keep only countries that have at least 
+  group_by(country) %>%
+  # get an idea of percent NAs per country
+  # summarise(
+  #   n_na = sum(is.na(people_vaccinated_per_hundred)),
+  #   n_total = length(people_vaccinated_per_hundred),
+  #   pct_na = sum(is.na(people_vaccinated_per_hundred)) / length(people_vaccinated_per_hundred) * 100
+  # )
+  #  remove countries that have more than 50% NAs
+  filter(sum(is.na(people_vaccinated_per_hundred)) / length(people_vaccinated_per_hundred) < 0.5) %>% # (these countries did not consistently report vaccine rates)
+  ungroup() %>%                                                                                                
+  # filter to keep only non-NA in people_vaccinated_per_hundred
+  drop_na(people_vaccinated_per_hundred) %>%
+  # group by month, year
+  group_by(month, year, country) %>%
+  # select first available value of each month
+  filter(date == min(date))
+  
+# let's generate the same plots again to see how that looks:
+plot_vac_percent <- df_vac_nona_clean %>%
+  # filter(country %in% c("USA", "China", "India")) %>% # to show only some countries
+  ggplot(aes(x = date, y = people_vaccinated_per_hundred, color = country, group = country)) + 
+    geom_line(show.legend = FALSE) + 
+    theme_bw() +
+    ggtitle("People vaccinated with respect to the country's total population (%)") +
+    theme(legend.position="bottom")
+
+ggplotly(plot_vac_percent) # generate interactive plot
+
+
+plot_total_vac <- df_vac_nona_clean %>%
+  # filter(country %in% c("United States", "China", "India")) %>% # to show only some countries
+  ggplot(aes(x = date, y = total_vaccinations_per_hundred, color = country, group = country)) + 
+    geom_line(show.legend = FALSE) + 
+    theme_bw() +
+    ggtitle("Total number of vaccine doses administered per 100 people in the total population (%)") +
+    theme(legend.position="bottom")
+
+ggplotly(plot_total_vac) # generate interactive plot
+
+```
+
+  
+After removing countries that did not consistently report their vaccination rates (e.g., countries with more than 50% of their rows being NAs), this looks a lot cleaner!
+
+
+Let's bin the latest reported vaccination rate for every country into 4 groups: 
+
+* Less than 20% of the total population is vaccinated
+* Between 20-50% is vaccinated
+* Between 50-80% is vaccinated
+* More than 80% is vaccinated
+
+```{r}
+
+# select the most recent reported vaccination percent for every country
+box_pct_vac <- df_vac_nona_clean %>%
+  group_by(country) %>%
+  filter(date == max(date)) %>%
+  # create new binning variable
+  mutate(binned_people_vaccinated_per_hundred = case_when(people_vaccinated_per_hundred < 20 ~ "Under 20%", 
+                                                          people_vaccinated_per_hundred >= 20 & people_vaccinated_per_hundred < 50 ~ "20-50%",
+                                                          people_vaccinated_per_hundred >= 50 & people_vaccinated_per_hundred < 80 ~ "50-80%",
+                                                          people_vaccinated_per_hundred >= 80 ~ "Above 80%"
+                                                          )) %>%
+  ggplot(aes(x = forcats::fct_reorder(binned_people_vaccinated_per_hundred, -people_vaccinated_per_hundred, .fun = median), y = people_vaccinated_per_hundred, 
+             group = binned_people_vaccinated_per_hundred, fill = binned_people_vaccinated_per_hundred, color = binned_people_vaccinated_per_hundred)) +
+  geom_boxplot(alpha = 0.5) +
+  geom_jitter() +
+  labs(title = "Countries binned by their current vaccination rate",
+       x = "Current vaccination rates (March 2022)",
+       y = "Percent people vaccinated per 100 in total population",
+       color = "",
+       fill = "") +
+  theme_bw()
+
+ggplotly(box_pct_vac, tooltip="country")
+
+```
+
+
+### Merging COVID-19 cases and vaccinations
+
+Let's now merge the COVID-19 cases and vaccination datasets. 
+
+```{r}
+
+
+
+```
+
+
