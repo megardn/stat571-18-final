@@ -1,0 +1,68 @@
+---
+title: "COVID_Sustainability_Global"
+author:
+- Diego G. Davila
+- Margaret Gardner
+- Joelle Bagautdinova
+date: 'Due before midnight, May 1st'
+output:
+  html_document:
+    code_folding: show
+    highlight: haddock
+    theme: lumen
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+    number_sections: yes
+  pdf_document:
+    toc_depth: '4'
+    number_sections: yes
+urlcolor: blue
+---
+
+```{r Setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width=8, fig.height=4)
+options(scipen = 0, digits = 3)  # controls base R output
+
+# Package setup
+if(!require("pacman")) install.packages("pacman")
+
+pacman::p_load(tidyverse, dplyr, ggplot2, ggthemes, data.table, lubridate,
+               GGally, RColorBrewer, ggsci, plotROC, usmap,
+               plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car)
+```
+
+## Merging Datasets
+
+Load outputs from EDA Rmds
+```{r load.dfs}
+load("data/WorldSustainabilityData_Processed.Rda")
+str(wsd)
+max(wsd$Year)
+wsd <- wsd %>% dplyr::select(1:3,"Continent",4:21,23:ncol(wsd)) %>% # rearrange a little to group continent with the other geographic data
+  mutate(Country.Name=as.factor(Country.Name)) %>%
+  rename(country=Country.Name)
+
+load("data/covid_cases_vaccines_clean.Rda")
+str(covid)
+
+#some discrepancy in how countries are named, gonna fix that
+wsd.country <- levels(wsd$country)
+covid.country <- levels(covid$country)
+setdiff(wsd.country, covid.country) #only in wsd, not covid
+setdiff(covid.country, wsd.country) #only in covid, not wsd
+
+covid$country <- recode_factor(covid$country, "UK"="United Kingdom", "Gambia"="Gambia, The", "Laos"="Lao PDR", "Egypt"="Egypt, Arab Rep.", "South Korea"="Korea, Rep.", "USA"="United States", "Russia"="Russian Federation", "Venezuela"="Venezuela, RB", "Democratic Republic Of The Congo"="DRC")
+wsd$country <- recode_factor(wsd$country,  "Iran, Islamic Rep."="Iran", "Bosnia and Herzegovina"="Bosnia And Herzegovina", "Cote d'Ivoire"="Cote D Ivoire", "Guinea-Bissau"="Guinea Bissau", "Kyrgyz Republic"="Kyrgyzstan", "North Macedonia"="Macedonia", "Eswatini"="Swaziland", "Vietnam"="Viet Nam", "Timor-Leste"="Timor Leste", "Slovak Republic"="Slovakia", "Congo, Rep."="Congo", "Congo, Dem. Rep."="DRC")
+```
+
+To start, I'll make a wide df the WSD data into the COVID dataset containing: the latest (2018) data; change in each parameter over time (2001 to 2018); the average of the last 3 years (2016-2018). From there, this can be merged into the full COVID dataset so hopefully we'll have maximum flexibility in further defining our outcome variables.
+
+
+``` {r}
+wsd.2018 <- wsd %>% subset(Year==max(wsd$Year)) #filter to last year of WSD data
+colnames(wsd.2018)[9:83] <- paste(colnames(wsd.2018)[9:83], "2018", sep = "_") #add suffix
+
+
+```
+
