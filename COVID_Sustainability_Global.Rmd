@@ -32,37 +32,129 @@ pacman::p_load(tidyverse, dplyr, ggplot2, ggthemes, data.table, lubridate,
                plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car)
 ```
 
-## Merging Datasets
+
 
 Load outputs from EDA Rmds
 ```{r load.dfs}
 load("data/WorldSustainabilityData_Processed.Rda")
-str(wsd)
+#skim(wsd)
 max(wsd$Year)
 wsd <- wsd %>% dplyr::select(1:3,"Continent",4:21,23:ncol(wsd)) %>% # rearrange a little to group continent with the other geographic data
   mutate(Country.Name=as.factor(Country.Name)) %>%
   rename(country=Country.Name)
 
 load("data/covid_cases_vaccines_clean.Rda")
-str(covid)
+#skim(covid)
+```
 
+```{r}
 #some discrepancy in how countries are named, gonna fix that
 wsd.country <- levels(wsd$country)
 covid.country <- levels(covid$country)
-setdiff(wsd.country, covid.country) #only in wsd, not covid
-setdiff(covid.country, wsd.country) #only in covid, not wsd
+#setdiff(wsd.country, covid.country) #only in wsd, not covid
+#setdiff(covid.country, wsd.country) #only in covid, not wsd
 
 covid$country <- recode_factor(covid$country, "UK"="United Kingdom", "Gambia"="Gambia, The", "Laos"="Lao PDR", "Egypt"="Egypt, Arab Rep.", "South Korea"="Korea, Rep.", "USA"="United States", "Russia"="Russian Federation", "Venezuela"="Venezuela, RB", "Democratic Republic Of The Congo"="DRC")
 wsd$country <- recode_factor(wsd$country,  "Iran, Islamic Rep."="Iran", "Bosnia and Herzegovina"="Bosnia And Herzegovina", "Cote d'Ivoire"="Cote D Ivoire", "Guinea-Bissau"="Guinea Bissau", "Kyrgyz Republic"="Kyrgyzstan", "North Macedonia"="Macedonia", "Eswatini"="Swaziland", "Vietnam"="Viet Nam", "Timor-Leste"="Timor Leste", "Slovak Republic"="Slovakia", "Congo, Rep."="Congo", "Congo, Dem. Rep."="DRC")
 ```
 
-To start, I'll make a wide df the WSD data into the COVID dataset containing: the latest (2018) data; change in each parameter over time (2001 to 2018); the average of the last 3 years (2016-2018). From there, this can be merged into the full COVID dataset so hopefully we'll have maximum flexibility in further defining our outcome variables.
+Before attempting to merge, I'll parse down the dataframes so we can hopefully we can mix and match as needed to get what we need for our final analyses.
 
+## WSD Summary Vales
+
+To start, I'll make a wide df the WSD data into the COVID dataset containing: the latest (2018) data; change in each parameter over time (2001 to 2018); the average of the last 3 years of data (2016-2018 for most countries). Also made one for latest date for each country since 32 are missing 2018 data, not sure which we want to use!
 
 ``` {r}
-wsd.2018 <- wsd %>% subset(Year==max(wsd$Year)) #filter to last year of WSD data
-colnames(wsd.2018)[9:83] <- paste(colnames(wsd.2018)[9:83], "2018", sep = "_") #add suffix
-
-
+# 2018 values
+wsd.2018 <- wsd %>% subset(Year==max(wsd$Year)) %>% select(-Year) #filter to last year of WSD data
+colnames(wsd.2018)[5:30] <- paste(colnames(wsd.2018)[5:30], "2018", sep = "_") #add suffix
+head(wsd.2018)
+n_unique(wsd.2018$country) 
 ```
+
+```{r}
+# latest data for each country
+wsd.latest <- wsd %>% arrange(Year) %>%
+  group_by(country) %>%
+  slice_tail(n=1) %>%
+  ungroup()
+colnames(wsd.latest)[2:31] <- paste(colnames(wsd.latest)[2:31], "latest", sep = "_") #add suffix
+table(as.factor(wsd.latest$Year_latest)) # see yr frequencies
+```
+
+```{r}
+# 3-yr averages for numeric
+wsd.3yr.num <- wsd %>% arrange(Year) %>%
+  group_by(country) %>%
+  slice_tail(n=3) %>%
+  summarise_if(is.numeric, mean) %>%
+  ungroup() %>%
+  rename(MeanYear=Year)
+colnames(wsd.3yr.num)[2:26] <- paste(colnames(wsd.3yr.num)[2:26], "3yr", sep = "_") #add suffix
+
+
+# 3-yr mode for factors
+# create a function to find the mode. Taken from: https://stackoverflow.com/questions/2547402/how-to-find-the-statistical-mode
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+wsd.3yr.fac <- wsd %>% arrange(Year) %>%
+  group_by(country) %>%
+  slice_tail(n=3) %>%
+  mutate(WorldBankIncomeClass = Mode(WorldBankIncomeClass),
+         RegimeType = Mode(RegimeType),
+         WorldRegion=Mode(WorldRegion)) %>%
+  ungroup() %>%
+  select(country, WorldBankIncomeClass, RegimeType, WorldRegion) %>%
+  distinct()
+#n_unique(wsd.3yr.fac$country) #make sure no countries missing
+colnames(wsd.3yr.fac)[2:4] <- paste(colnames(wsd.3yr.fac)[2:4], "3yr", sep = "_") #add suffix
+
+wsd.3yr <- merge(wsd.3yr.fac, wsd.3yr.num, by="country") #rejoin num and fac
+```
+
+```{r}
+# averages for numeric
+wsd.avg.num <- wsd %>% arrange(Year) %>%
+  group_by(country) %>%
+  summarise_if(is.numeric, mean) %>%
+  ungroup() %>%
+  select(-Year)
+colnames(wsd.avg.num)[2:25] <- paste(colnames(wsd.avg.num)[2:25], "avg", sep = "_") #add suffix
+
+# mode for factors
+wsd.avg.fac <- wsd %>% arrange(Year) %>%
+  group_by(country) %>%
+  mutate(WorldBankIncomeClass = Mode(WorldBankIncomeClass),
+         RegimeType = Mode(RegimeType),
+         WorldRegion=Mode(WorldRegion),
+         nYears=n()) %>% #count how many years are being averaged for each country
+  ungroup() %>%
+  select(country, WorldBankIncomeClass, RegimeType, WorldRegion, nYears) %>%
+  distinct()
+colnames(wsd.avg.fac)[2:5] <- paste(colnames(wsd.avg.fac)[2:5], "avg", sep = "_") #add suffix
+
+# #make sure modes returned as expected 
+# angola <- wsd$WorldBankIncomeClass[wsd$country=="Angola"]
+# Mode(angola)
+# wsd.avg.fac$WorldBankIncomeClass[wsd.avg.fac$country=="Angola"]
+# #looks good!
+
+wsd.avg <- merge(wsd.avg.fac, wsd.avg.num, by="country") #rejoin num and fac
+```
+
+Merge into one wide wsd dataframe:
+
+```{r}
+# one predictor dataframe to rule them all - not sure if it's helpful but here goes
+wsd.1 <- right_join(wsd.2018, wsd.3yr, by="country") #left join to keep countries w/o 2018 data
+wsd.sum.wide <- inner_join(wsd.1, wsd.avg, by="country")
+#skim(wsd.sum.wide)
+```
+
+## COVID Summary Values
+
+
 

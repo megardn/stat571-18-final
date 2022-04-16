@@ -589,7 +589,7 @@ This isn't really showing something very meaningful, may want to cut off and loo
 # save merged df (this will be used to merge with the sustainability data)
 write.csv(df_merged, "data/covid_cases_vaccines_clean.csv")
 # rename and save as r object for merging
-covid <- df_merged
+covid <- df_merged %>% ungroup()
 save(covid, file = "data/covid_cases_vaccines_clean.Rda")
 ```
 
