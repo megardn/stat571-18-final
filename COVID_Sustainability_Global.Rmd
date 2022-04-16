@@ -67,7 +67,7 @@ To start, I'll make a wide df the WSD data into the COVID dataset containing: th
 ``` {r}
 # 2018 values
 wsd.2018 <- wsd %>% subset(Year==max(wsd$Year)) %>% select(-Year) #filter to last year of WSD data
-colnames(wsd.2018)[5:30] <- paste(colnames(wsd.2018)[5:30], "2018", sep = "_") #add suffix
+colnames(wsd.2018)[4:30] <- paste(colnames(wsd.2018)[4:30], "2018", sep = "_") #add suffix
 head(wsd.2018)
 n_unique(wsd.2018$country) 
 ```
@@ -148,13 +148,177 @@ wsd.avg <- merge(wsd.avg.fac, wsd.avg.num, by="country") #rejoin num and fac
 Merge into one wide wsd dataframe:
 
 ```{r}
-# one predictor dataframe to rule them all - not sure if it's helpful but here goes
-wsd.1 <- right_join(wsd.2018, wsd.3yr, by="country") #left join to keep countries w/o 2018 data
-wsd.sum.wide <- inner_join(wsd.1, wsd.avg, by="country")
+# one predictor dataframe to rule them all
+wsd.df_list <- list(wsd.2018, wsd.3yr, wsd.avg) #dfs to merge
+wsd.sum.wide <- wsd.df_list %>% reduce(full_join, by='country') #join
 #skim(wsd.sum.wide)
+
+#here's a long version if you want it
+wsd.sum.long <- wsd.sum.wide %>% 
+  pivot_longer(c(contains("_")), 
+    names_to = c(".value", "time"), 
+    names_sep = "_", 
+    values_drop_na = TRUE
+  )
 ```
 
 ## COVID Summary Values
 
+I'll attempt to make the dataframe smaller and more mergable by filtering down into summary variables, similar to WSD. Some possibilities of things we could compare between countries:
+- Date vaccinations start
+- mean daily vaccinations during first 6 months of availability
+- peak daily new deaths & date of that peak (actual date or number days from start)
+- days to binned_people_vaccinated_per_hundred >= X
+- binned_people_vaccinated_per_hundred as of March 2022
+- percent vaccines as of March 2022
+
+```{r}
+skim(covid)
+#last day with data for each country
+last.timepoint <- covid %>% group_by(country) %>%
+  arrange(date) %>%
+  slice_tail(n=1) %>%
+  ungroup()
+last.timepoint <- last.timepoint[, which(colMeans(!is.na(last.timepoint)) > 0.5)] #remove cols with NA > 50%
+skim(last.timepoint)
+
+# #find date of vaccination events
+# table(covid$vaccination_events)
+# table(covid$vaccine_dose_events)
+# table(covid$binned_people_vaccinated_per_hundred)
+```
+Vaccine outcomes
+
+```{r}
+# creating dfs of vaccination events - much of this is from covid_EDA.Rmd and can be removed/cleaned up once Rmds are merged!
+vac_1_dose <- covid %>%
+  select(country, date, vaccine_dose_events) %>%
+  filter(vaccine_dose_events == "1_dose")%>%
+  mutate(days.to.1d_rel = as.numeric(difftime(date, min(date), units = "days")),
+         days.to.1d_abs = as.numeric(difftime(date, "2020-12-01", units = "days"))) # setting Dec 1, 2020 as vaccine baseline to compare across vaccine events
+vac_1_dose[which.min(vac_1_dose$date),] #first country to get one dose per person
 
 
+vac_2_doses <- covid %>%
+  select(country, date, vaccine_dose_events) %>%
+  filter(vaccine_dose_events == "2_doses")%>%
+  mutate(days.to.2d_rel = as.numeric(difftime(date, min(date), units = "days")),
+         days.to.2d_abs = as.numeric(difftime(date, "2020-12-01", units = "days")))
+vac_2_doses[which.min(vac_2_doses$date),] #first country to hit 2 doses
+
+vac_start_df <- covid %>%
+  select(country, date, vaccination_events) %>%
+  filter(vaccination_events == "vac_start") %>%
+  mutate(days.to.start_rel = as.numeric(difftime(date, min(date), units = "days")),
+         days.to.start_abs = as.numeric(difftime(date, "2020-12-01", units = "days")))
+
+vac_50_df <- covid %>%
+  select(country, date, vaccination_events) %>%
+  filter(vaccination_events == "vac_50pct") %>%
+  mutate(days.to.50pct_rel = as.numeric(difftime(date, min(date), units = "days")),
+         days.to.50pct_abs = as.numeric(difftime(date, "2020-12-01", units = "days")))
+
+binned_vac <- covid %>%
+  select(country, date, binned_people_vaccinated_per_hundred) %>%
+  drop_na(binned_people_vaccinated_per_hundred) %>%
+  group_by(country) %>%
+  arrange(date) %>%
+  slice_tail(n=1) %>%
+  ungroup() %>%
+  rename (bin.ppl.vac.per100_17mar22=binned_people_vaccinated_per_hundred)
+#summary(binned_vac$date)
+#n_unique(binned_vac$country) #no countries lost
+
+vac_rate <- covid %>%
+  select(country, date, daily_vaccinations_per_million) %>%
+  filter(daily_vaccinations_per_million > 0,
+         date <= "2021-07-01") %>% # daily vaccinations in 1st 6 mo
+  drop_na(daily_vaccinations_per_million) %>%
+  group_by(country) %>%
+  summarise(daily.vac.per.mil_6mo = mean(daily_vaccinations_per_million))
+```
+
+case & death outcomes - add cases & deaths per hundred
+Note - can calculate proportinal covid cases, etc, once merged using `TotalPopulation_2018` from WSD but this isn't ideal given the data will be at least 2 yrs old
+
+``` {r}
+# cases & deaths at 1 yr mark (2021-01-22)
+covid_1yr <- covid %>%
+  subset(date == "2021-01-22")
+covid_1yr <- covid_1yr[, which(colMeans(!is.na(covid_1yr)) > 0.5)] #remove cols with NA > 50%
+#sum(is.na(covid_1yr$cumulative_total_cases))
+
+covid.1yr_cum <- covid_1yr %>%
+  select(country, cumulative_total_cases, cumulative_total_deaths, binned_people_vaccinated_per_hundred) %>%
+  rename(cum.cases_1yr = cumulative_total_cases,
+         cum.deaths_1yr = cumulative_total_deaths,
+         bin.ppl.vac.per100_1yr = binned_people_vaccinated_per_hundred)
+
+#cases & deaths march 17, 2022
+covid.final_cum <- last.timepoint %>%
+  select(country, cumulative_total_cases, cumulative_total_deaths, binned_people_vaccinated_per_hundred) %>%
+  rename(cum.cases_final = cumulative_total_cases,
+         cum.deaths_final = cumulative_total_deaths,
+         bin.ppl.vac.per100_final = binned_people_vaccinated_per_hundred) #using . and _ separators to match WSD in case we want to pivot long later
+
+#peak rates
+covid_maxrate <- covid %>%
+  select("country" | contains("new") | contains("daily")) %>%
+  group_by(country) %>%
+  mutate_if(is.numeric, ~replace(., is.na(.), -1)) %>% #temporarily replace na's with -1
+  summarise_if(is.numeric, max) %>%
+  na_if(-1) %>% #set -1's back to na
+  rename(daily.new.cases_max = daily_new_cases,
+         daily.new.deaths_max = daily_new_deaths,
+         monthly.new.cases_max = monthly_new_cases,
+         monthly.new.deaths_max = monthly_new_deaths,
+         weekly.new.cases_max = weekly_new_cases,
+         weekly.new.deaths_max = weekly_new_deaths,
+         daily.vac.raw_max = daily_vaccinations_raw,
+         daily.vac_max = daily_vaccinations,
+         daily.vac.per.mil_max = daily_vaccinations_per_million) #using . and _ separators to match WSD in case we want to pivot long later
+#n_unique(covid_maxrate$country) #no countries lost
+```
+
+
+Now let's merge all these vaccination dfs into one dataframe we can try to predict
+
+``` {r}
+#df for vaccine info
+vac.df_list <- list(vac_1_dose, vac_2_doses, vac_start_df, vac_50_df, binned_vac)
+#drop date and event info since this is contained in col names
+for (i in 1:length(vac.df_list)) {
+  vac.df_list[[i]] <- vac.df_list[[i]] %>% select(-c("date", contains("events")))
+}
+vac.df_list[[length(vac.df_list)+1]] <- vac_rate
+
+vac.sum.wide <- vac.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
+```
+Merging case & death dfs
+
+```{r}
+#df for cases and deaths
+case.df_list <- list(covid.1yr_cum, covid.final_cum, covid_maxrate)
+case.sum.wide <- case.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
+skim(case.sum.wide)
+```
+
+## Merge! Merge! Merge!
+
+``` {r}
+#merging WSD predictors with vaccination summary data
+vac.wsd.wide <- inner_join(vac.sum.wide, wsd.sum.wide, by="country")
+skim(vac.wsd.wide)
+
+#merging WSD predictors with cases, deaths & maxrate data
+case.wsd.wide <- inner_join(case.sum.wide, wsd.sum.wide, by="country")
+skim(case.wsd.wide)
+
+#merging WSD predictors with data as of March 17, 2022 with at least 50% completion
+mar22.wsd.wide <- inner_join(last.timepoint, wsd.sum.wide, by="country")
+skim(mar22.wsd.wide)
+```
+
+Any of the above can be recombined/merged further or pivoted long. Other dataframes that can be merged:
+* `covid_1yr` : cases & deaths at 1 yr mark (2021-01-22)
+* `wsd.sum.long` : long version of WSD summary data with `time` column indicating if data was from a specific year or timeperiod it's averaged over
