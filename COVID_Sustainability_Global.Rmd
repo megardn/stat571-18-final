@@ -62,7 +62,7 @@ Before attempting to merge, I'll parse down the dataframes so we can hopefully w
 
 ## WSD Summary Vales
 
-To start, I'll make a wide df the WSD data into the COVID dataset containing: the latest (2018) data; change in each parameter over time (2001 to 2018); the average of the last 3 years of data (2016-2018 for most countries). Also made one for latest date for each country since 32 are missing 2018 data, not sure which we want to use!
+To start, I'll make a wide df the WSD data into the COVID dataset containing: the latest (2018) data; average of each parameter over time (2001 to 2018); the average of the last 3 years of data (2016-2018 for most countries); change in each parameter over time (2001-2018). Also made one for latest date for each country since 32 are missing 2018 data, not sure which we want to use!
 
 ``` {r}
 # 2018 values
@@ -145,18 +145,34 @@ colnames(wsd.avg.fac)[2:5] <- paste(colnames(wsd.avg.fac)[2:5], "avg", sep = "_"
 wsd.avg <- merge(wsd.avg.fac, wsd.avg.num, by="country") #rejoin num and fac
 ```
 
+```{r}
+# change in each parameter over 10 years - figure out how to find change in factors 
+wsd.change <- wsd %>% 
+  group_by(country) %>%
+  arrange(Year) %>%
+  select_if(is.numeric)%>%
+  subset(Year==2018 | Year == 2008) %>%
+  #filter(row_number() == 1 | row_number() == n()) %>% #select first and last timepoint for each country - leads to inconsistent times
+  mutate_each(funs(c(NA,diff(.))))%>% #calculate change
+  select(-Year) %>%
+  drop_na() %>%
+  ungroup()
+colnames(wsd.change)[2:25] <- paste(colnames(wsd.change)[2:25], "diff", sep = "_") #add suffix
+#hist(wsd.change$Year)
+```
+
 Merge into one wide wsd dataframe:
 
 ```{r}
 # one predictor dataframe to rule them all
-wsd.df_list <- list(wsd.2018, wsd.3yr, wsd.avg) #dfs to merge
+wsd.df_list <- list(wsd.2018, wsd.3yr, wsd.avg, wsd.change) #dfs to merge
 wsd.sum.wide <- wsd.df_list %>% reduce(full_join, by='country') #join
 #skim(wsd.sum.wide)
 
 #here's a long version if you want it
 wsd.sum.long <- wsd.sum.wide %>% 
   pivot_longer(c(contains("_")), 
-    names_to = c(".value", "time"), 
+    names_to = c(".value", "type"), 
     names_sep = "_", 
     values_drop_na = TRUE
   )
@@ -321,4 +337,4 @@ skim(mar22.wsd.wide)
 
 Any of the above can be recombined/merged further or pivoted long. Other dataframes that can be merged:
 * `covid_1yr` : cases & deaths at 1 yr mark (2021-01-22)
-* `wsd.sum.long` : long version of WSD summary data with `time` column indicating if data was from a specific year or timeperiod it's averaged over
+* `wsd.sum.long` : long version of WSD summary data with `type` column indicating if data was from a specific year or timeperiod it's averaged over
