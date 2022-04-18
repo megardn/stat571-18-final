@@ -89,6 +89,7 @@ Values averaged across 2016-2018; only includes countries with da.
 wsd.3yr.num <- wsd %>% arrange(Year) %>%
   filter(Year >= 2016) %>% #get 2016-2018 data
   group_by(country) %>%
+  filter(n() == 3) %>%
   summarise_if(is.numeric, mean) %>% #means
   ungroup()
 colnames(wsd.3yr.num)[2:26] <- paste(colnames(wsd.3yr.num)[2:26], "3yr", sep = "_") #add suffix
@@ -104,6 +105,7 @@ Mode <- function(x) {
 wsd.3yr.fac <- wsd %>% arrange(Year) %>%
   group_by(country) %>%
   filter(Year >= 2016) %>% #get 2016-2018 data
+  filter(n() == 3) %>%
   mutate(WorldBankIncomeClass = Mode(WorldBankIncomeClass),
          RegimeType = Mode(RegimeType),
          WorldRegion=Mode(WorldRegion),
@@ -115,7 +117,6 @@ wsd.3yr.fac <- wsd %>% arrange(Year) %>%
 colnames(wsd.3yr.fac)[2:5] <- paste(colnames(wsd.3yr.fac)[2:5], "3yr", sep = "_") #add suffix
 
 wsd.3yr <- merge(wsd.3yr.fac, wsd.3yr.num, by="country") %>% #rejoin num and fac
-    subset(Year_3yr==2017 && nYears_3yr==3) %>% # only keep countries that have data from 2016-2018
     select(-Year_3yr, -nYears_3yr)
 nrow(wsd.3yr)
 ```
@@ -219,7 +220,10 @@ wsd.sum.wide <- wsd.df_list %>% reduce(full_join, by='country') #join
 #skim(wsd.sum.wide)
 
 #here's a long version if you want it
-wsd.sum.long <- wsd.sum.wide %>% 
+wsd.sum.long <- wsd.sum.wide %>%
+  select(-WorldBankIncomeClass_rel.diff, -RegimeType_rel.diff) %>%
+  mutate(WorldBankIncomeClass_diff=as.factor(WorldBankIncomeClass_diff),
+         RegimeType_diff=as.factor(RegimeType_diff)) %>%
   pivot_longer(c(contains("_")), 
     names_to = c(".value", "type"), 
     names_sep = "_", 
@@ -274,32 +278,39 @@ Vaccine outcomes
 
 ```{r}
 # creating dfs of vaccination events - much of this is from covid_EDA.Rmd and can be removed/cleaned up once Rmds are merged!
-vac_1_dose <- covid %>%
-  select(country, date, vaccine_dose_events) %>%
-  filter(vaccine_dose_events == "1_dose")%>%
-  mutate(days.to.1d_rel = as.numeric(difftime(date, min(date), units = "days")),
-         days.to.1d_abs = as.numeric(difftime(date, "2020-12-01", units = "days"))) # setting Dec 1, 2020 as vaccine baseline to compare across vaccine events
-vac_1_dose[which.min(vac_1_dose$date),] #first country to get one dose per person
-#add rate (days relative to each countries own start of vaccinations)
-
-vac_2_doses <- covid %>%
-  select(country, date, vaccine_dose_events) %>%
-  filter(vaccine_dose_events == "2_doses")%>%
-  mutate(days.to.2d_rel = as.numeric(difftime(date, min(date), units = "days")),
-         days.to.2d_abs = as.numeric(difftime(date, "2020-12-01", units = "days")))
-vac_2_doses[which.min(vac_2_doses$date),] #first country to hit 2 doses
-
+##dat vac start doesn't actually calculate - just earliest date that vaccines were reported but many countries dont have data until a while after starting, ie 70% pop is already vaccinated at day 1
 vac_start_df <- covid %>%
-  select(country, date, vaccination_events) %>%
+  select(country, date, vaccination_events, binned_people_vaccinated_per_hundred, people_vaccinated) %>%
   filter(vaccination_events == "vac_start") %>%
   mutate(days.to.start_rel = as.numeric(difftime(date, min(date), units = "days")),
-         days.to.start_abs = as.numeric(difftime(date, "2020-12-01", units = "days")))
+         days.to.start_abs = as.numeric(difftime(date, "2020-12-01", units = "days"))) %>%
+  rename(date.first.vac = date)
+#adding date of first vaccination for each country to the covid df so it can be used as a baseline later - there may be a more elegant way of doing this but im tired
+vac_start_date <- vac_start_df %>% select(country, date.first.vac)
+covid <- full_join(covid, vac_start_date, by ="country")
+
+vac_1_dose <- covid %>%
+  select(country, date, vaccine_dose_events, date.first.vac) %>%
+  filter(vaccine_dose_events == "1_dose")%>%
+  mutate(days.to.1d_rel = as.numeric(difftime(date, min(date), units = "days")),
+         days.to.1d_abs = as.numeric(difftime(date, "2020-12-01", units = "days")), # setting Dec 1, 2020 as vaccine baseline to compare across vaccine events
+         days.to.1d_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))) 
+vac_1_dose[which.min(vac_1_dose$date),] #first country to get one dose per person
+
+vac_2_doses <- covid %>%
+  select(country, date, vaccine_dose_events, date.first.vac) %>%
+  filter(vaccine_dose_events == "2_doses")%>%
+  mutate(days.to.2d_rel = as.numeric(difftime(date, min(date), units = "days")),
+         days.to.2d_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
+         days.to.2d_fromstart = as.numeric(difftime(date, date.first.vac, units = "days")))
+vac_2_doses[which.min(vac_2_doses$date),] #first country to hit 2 doses
 
 vac_50_df <- covid %>%
-  select(country, date, vaccination_events) %>%
+  select(country, date, vaccination_events, date.first.vac) %>%
   filter(vaccination_events == "vac_50pct") %>%
   mutate(days.to.50pct_rel = as.numeric(difftime(date, min(date), units = "days")),
-         days.to.50pct_abs = as.numeric(difftime(date, "2020-12-01", units = "days")))
+         days.to.50pct_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
+         days.to.50pct_fromstart = as.numeric(difftime(date, date.first.vac, units = "days")))
 
 #percent of ppl w/ 1 dose of vaccine as of mar 17 2022
 binned_vac <- covid %>%
@@ -314,18 +325,24 @@ binned_vac <- covid %>%
 #n_unique(binned_vac$country) #no countries lost
 
 vac_rate <- covid %>%
-  select(country, date, daily_vaccinations_per_million) %>%
+  select(country, date, daily_vaccinations_per_million, date.first.vac) %>%
   filter(daily_vaccinations_per_million > 0,
-         date <= "2021-07-01") %>% # daily vaccinations in 1st 6 mo - make relative to their own vaccine start date
+         date <= (date.first.vac %m+% months(6))) %>% # daily vaccinations in 1st 6 mo - make relative to their own vaccine start date
   drop_na(daily_vaccinations_per_million) %>%
   group_by(country) %>%
   summarise(daily.vac.per.mil_6mo = mean(daily_vaccinations_per_million))
 ```
 
-case & death outcomes - add cases & deaths per hundred
-Note - can calculate proportinal covid cases, etc, once merged using `TotalPopulation_2018` from WSD but this isn't ideal given the data will be at least 2 yrs old
-
 ``` {r}
+# cases & deaths pre-vaccines
+covid_prevac <- covid %>%
+  group_by(country) %>%
+  subset(date < date.first.vac) %>%
+  arrange(country,date) %>%
+  slice_tail(n=1) %>%
+  ungroup()
+covid_prevac <- covid_prevac[, which(colMeans(!is.na(covid_prevac)) > 0.5)] #remove cols with NA > 50%
+
 # cases & deaths at 1 yr mark (2021-01-22)
 covid_1yr <- covid %>%
   subset(date == "2021-01-22") #change to deaths/cases prior to vaccine start, normed by pop!
@@ -362,6 +379,7 @@ covid_maxrate <- covid %>%
          daily.vac_max = daily_vaccinations,
          daily.vac.per.mil_max = daily_vaccinations_per_million) #using . and _ separators to match WSD in case we want to pivot long later
 #n_unique(covid_maxrate$country) #no countries lost
+
 ```
 
 
