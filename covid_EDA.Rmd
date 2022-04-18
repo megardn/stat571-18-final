@@ -371,7 +371,7 @@ df_merged <- df_merged %>%
                                         people_vaccinated_per_hundred >= 70 ~ "vac_70pct",
                                         people_vaccinated_per_hundred >= 50 ~ "vac_50pct",
                                         people_vaccinated_per_hundred >= 30 ~ "vac_30pct",
-                                        people_vaccinated_per_hundred >= 0 ~ "vac_start",
+                                        people_vaccinated_per_hundred >= 0 & people_vaccinated_per_hundred < 10 ~ "vac_start",
                                         TRUE ~ "no")),
          vaccination_events = replace(vaccination_events, duplicated(vaccination_events), NA) # keep only first occurrence of an event
          )  
@@ -395,6 +395,10 @@ bins_df <- df_vac_nona_clean %>%
 # merge with main
 df_merged <- merge(df_merged, bins_df, by = c("country"), all.x = TRUE)
 
+# checking that there are no countries with more than 10% vaccinated at their vac_start mark
+df_merged %>%
+  filter(vaccination_events == "vac_start" & people_vaccinated_per_hundred > 10) %>%
+  select(country, vaccination_events, people_vaccinated_per_hundred)
 
 ```
 
