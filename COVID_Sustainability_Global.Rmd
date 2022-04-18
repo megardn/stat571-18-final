@@ -243,11 +243,27 @@ I'll attempt to make the dataframe smaller and more mergable by filtering down i
 skim(covid)
 #last day with data for each country
 last.timepoint <- covid %>% group_by(country) %>%
-  arrange(date) %>%
+  arrange(country,date) %>%
   slice_tail(n=1) %>%
   ungroup()
 last.timepoint <- last.timepoint[, which(colMeans(!is.na(last.timepoint)) > 0.5)] #remove cols with NA > 50%
 skim(last.timepoint)
+
+# get missing column names
+missing_vac_cols <-  names(which(colMeans(is.na(last.timepoint)) > 0.5))
+
+# add last reported (within 2022) vaccination info
+vac_info_2022 <- covid %>%
+  drop_na(people_vaccinated_per_hundred) %>%   # filter to keep only non-NA in people_vaccinated_per_hundred
+  group_by(country) %>% 
+  filter(date == max(date)) %>%   # keep last reported date for every country
+  filter(year == 2022) %>% # keep only countries who last reported in 2022 (as we are interested in a recent vaccination status)
+  # filter(month_year == "2022-03-01") # could also filter for march 2022 specifically
+  select(country, date, missing_vac_cols) %>% # keep only variables not yet included in last.timepoint
+  rename(date_last_vac = date)# rename the date to correspond to last reported vaccine info
+
+# merge the last reported vaccination info with last reported cases/deaths info
+last.timepoint <- merge(last.timepoint, vac_info_2022, by = "country")
 
 # #find date of vaccination events
 # table(covid$vaccination_events)
