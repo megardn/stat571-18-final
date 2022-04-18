@@ -82,9 +82,13 @@ df_pop <- df_pop %>% rename(country=entity) %>%
 #setdiff(df_pop$country, df_vac$country)
 #setdiff(df_vac$country, df_pop$country)
 df_pop$country<-recode_factor(df_pop$country, "United States"="USA")
+#create new metrics per hundred
 df_cases <- left_join(df_cases, df_pop, by="country") %>%
   mutate(daily_new_cases_per_hundred = (daily_new_cases/population)*100,
-        daily_new_deaths_per_hundred = (daily_new_deaths/population)*100)
+        daily_new_deaths_per_hundred = (daily_new_deaths/population)*100,
+        cumulative_total_cases_per_hundred = (cumulative_total_cases/population)*100,
+        active_cases_per_hundred = (active_cases/population)*100,
+        cumulative_total_deaths_per_hundred = (cumulative_total_deaths/population)*100)
 
 
 # create new monthly and weekly cases/deaths variables
