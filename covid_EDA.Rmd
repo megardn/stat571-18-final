@@ -41,7 +41,7 @@ In this EDA, we are interested in combining a worldwide daily COVID cases datase
 * [COVID vaccines](https://www.kaggle.com/datasets/gpreda/covid-world-vaccination-progress)
 * [COVID cases](https://www.kaggle.com/datasets/josephassaker/covid19-global-dataset)
 * [COVID variants](https://www.kaggle.com/datasets/gpreda/covid19-variants)
-
+* [Country populations](https://github.com/owid/covid-19-data/blob/master/scripts/input/un/population_latest.csv)
 
 **Relevant questions:** 
 
@@ -69,11 +69,22 @@ df_cases <- df_cases %>%
          date = lubridate::mdy(date),
          year = lubridate::year(date),
          month_num = lubridate::month(date),
-         week = as.factor(lubridate::week(date))
-  )
+         week = as.factor(lubridate::week(date)))
 
 df_cases$month <- month.abb[df_cases$month_num] # convert to month names
 skim(df_cases)
+
+#load and merge in population data
+df_pop <- read.csv("data/pop_2021.csv")
+df_pop <- df_pop %>% rename(country=entity) %>%
+  select(country, population)
+#setdiff(df_pop$country, df_vac$country)
+#setdiff(df_vac$country, df_pop$country)
+df_pop$country<-recode_factor(df_pop$country, "United States"="USA")
+df_cases <- left_join(df_cases, df_pop, by="country") %>%
+  mutate(daily_new_cases_per_hundred = (daily_new_cases/population)*100,
+        daily_new_deaths_per_hundred = (daily_new_deaths/population)*100)
+
 
 # create new monthly and weekly cases/deaths variables
 df_cases <- df_cases %>%
@@ -82,6 +93,8 @@ df_cases <- df_cases %>%
   mutate(
     monthly_new_cases = sum(daily_new_cases, na.rm = TRUE),
     monthly_new_deaths = sum(daily_new_deaths, na.rm = TRUE),
+    monthly_new_cases_per_hundred = sum(daily_new_cases_per_hundred, na.rm = TRUE),
+    monthly_new_deaths_per_hundred = sum(daily_new_deaths_per_hundred, na.rm = TRUE),
     month_year = make_date(year, month_num) 
   ) %>%
   ungroup() %>%
@@ -90,8 +103,10 @@ df_cases <- df_cases %>%
   mutate(
     weekly_new_cases = mean(daily_new_cases, na.rm = TRUE),
     weekly_new_deaths = mean(daily_new_deaths, na.rm = TRUE),
+    weekly_new_cases_per_hundred = sum(daily_new_cases_per_hundred, na.rm = TRUE),
+    weekly_new_deaths_per_hundred = sum(daily_new_deaths_per_hundred, na.rm = TRUE),
     month_year = make_date(year, month_num)
-    )
+    ) #%>% ungroup()
 
 
 df_vac <- read.csv("data/country_vaccinations.csv")
