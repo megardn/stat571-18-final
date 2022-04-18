@@ -83,6 +83,9 @@ data.processed$WorldBankIncomeClass <- as.factor(data.processed$WorldBankIncomeC
 Export the processed data
 ```{r, eval=FALSE}
 write.csv(data.processed, "data/WorldSustainabilityData_Processed.csv", row.names = FALSE)
+#rename and save for merge
+wsd <- data.processed
+save(wsd, file="data/WorldSustainabilityData_Processed.Rda")
 ```
 
 ## EDA

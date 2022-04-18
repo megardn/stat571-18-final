@@ -1,0 +1,437 @@
+---
+title: "COVID_Sustainability_Global"
+author:
+- Diego G. Davila
+- Margaret Gardner
+- Joelle Bagautdinova
+date: 'Due before midnight, May 1st'
+output:
+  html_document:
+    code_folding: show
+    highlight: haddock
+    theme: lumen
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+    number_sections: yes
+  pdf_document:
+    toc_depth: '4'
+    number_sections: yes
+urlcolor: blue
+---
+
+```{r Setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width=8, fig.height=4)
+options(scipen = 0, digits = 3)  # controls base R output
+
+# Package setup
+if(!require("pacman")) install.packages("pacman")
+
+pacman::p_load(tidyverse, dplyr, ggplot2, ggthemes, data.table, lubridate,
+               GGally, RColorBrewer, ggsci, plotROC, usmap,
+               plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car)
+```
+
+
+
+Load outputs from EDA Rmds
+```{r load.dfs}
+load("data/WorldSustainabilityData_Processed.Rda")
+#skim(wsd)
+max(wsd$Year)
+wsd <- wsd %>% dplyr::select(1:3,"Continent",4:21,23:ncol(wsd)) %>% # rearrange a little to group continent with the other geographic data
+  mutate(Country.Name=as.factor(Country.Name)) %>%
+  rename(country=Country.Name)
+
+load("data/covid_cases_vaccines_clean.Rda")
+#skim(covid)
+```
+
+```{r}
+#some discrepancy in how countries are named, gonna fix that
+wsd.country <- levels(wsd$country)
+covid.country <- levels(covid$country)
+#setdiff(wsd.country, covid.country) #only in wsd, not covid
+#setdiff(covid.country, wsd.country) #only in covid, not wsd
+
+covid$country <- recode_factor(covid$country, "UK"="United Kingdom", "Gambia"="Gambia, The", "Laos"="Lao PDR", "Egypt"="Egypt, Arab Rep.", "South Korea"="Korea, Rep.", "USA"="United States", "Russia"="Russian Federation", "Venezuela"="Venezuela, RB", "Democratic Republic Of The Congo"="DRC")
+wsd$country <- recode_factor(wsd$country,  "Iran, Islamic Rep."="Iran", "Bosnia and Herzegovina"="Bosnia And Herzegovina", "Cote d'Ivoire"="Cote D Ivoire", "Guinea-Bissau"="Guinea Bissau", "Kyrgyz Republic"="Kyrgyzstan", "North Macedonia"="Macedonia", "Eswatini"="Swaziland", "Vietnam"="Viet Nam", "Timor-Leste"="Timor Leste", "Slovak Republic"="Slovakia", "Congo, Rep."="Congo", "Congo, Dem. Rep."="DRC")
+```
+
+Before attempting to merge, I'll parse down the dataframes so we can hopefully we can mix and match as needed to get what we need for our final analyses.
+
+## WSD Summary Vales
+
+To start, I'll make a wide df the WSD data into the COVID dataset containing: the latest (2018) data; average of each parameter over time (2001 to 2018); the average of the last 3 years of data (2016-2018 for most countries); change in each parameter over time (2001-2018). Also made one for latest date for each country since 32 are missing 2018 data, not sure which we want to use!
+
+``` {r}
+# 2018 values
+wsd.2018 <- wsd %>% subset(Year==max(wsd$Year)) %>% select(-Year) #filter to last year of WSD data
+colnames(wsd.2018)[4:30] <- paste(colnames(wsd.2018)[4:30], "2018", sep = "_") #add suffix
+head(wsd.2018)
+n_unique(wsd.2018$country) 
+```
+
+```{r}
+# latest data for each country
+wsd.latest <- wsd %>% arrange(Year) %>%
+  group_by(country) %>%
+  slice_tail(n=1) %>%
+  ungroup()
+colnames(wsd.latest)[2:31] <- paste(colnames(wsd.latest)[2:31], "latest", sep = "_") #add suffix
+table(as.factor(wsd.latest$Year_latest)) # see yr frequencies
+```
+
+Values averaged across 2016-2018; only includes countries with da. 
+
+```{r}
+# 3-yr averages for numeric
+wsd.3yr.num <- wsd %>% arrange(Year) %>%
+  filter(Year >= 2016) %>% #get 2016-2018 data
+  group_by(country) %>%
+  filter(n() == 3) %>%
+  summarise_if(is.numeric, mean) %>% #means
+  ungroup()
+colnames(wsd.3yr.num)[2:26] <- paste(colnames(wsd.3yr.num)[2:26], "3yr", sep = "_") #add suffix
+
+
+# 3-yr mode for factors
+# create a function to find the mode. Taken from: https://stackoverflow.com/questions/2547402/how-to-find-the-statistical-mode
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+wsd.3yr.fac <- wsd %>% arrange(Year) %>%
+  group_by(country) %>%
+  filter(Year >= 2016) %>% #get 2016-2018 data
+  filter(n() == 3) %>%
+  mutate(WorldBankIncomeClass = Mode(WorldBankIncomeClass),
+         RegimeType = Mode(RegimeType),
+         WorldRegion=Mode(WorldRegion),
+         nYears=n()) %>% #count how many years are being averaged for each country) %>%
+  ungroup() %>%
+  select(country, nYears, WorldBankIncomeClass, RegimeType, WorldRegion) %>%
+  distinct()
+#n_unique(wsd.3yr.fac$country) #make sure no countries missing
+colnames(wsd.3yr.fac)[2:5] <- paste(colnames(wsd.3yr.fac)[2:5], "3yr", sep = "_") #add suffix
+
+wsd.3yr <- merge(wsd.3yr.fac, wsd.3yr.num, by="country") %>% #rejoin num and fac
+    select(-Year_3yr, -nYears_3yr)
+nrow(wsd.3yr)
+```
+Averaging across all years for every country with available data. 
+
+```{r}
+# averages for numeric
+wsd.avg.num <- wsd %>% arrange(Year) %>%
+  group_by(country) %>%
+  summarise_if(is.numeric, mean) %>%
+  ungroup() %>%
+  select(-Year)
+colnames(wsd.avg.num)[2:25] <- paste(colnames(wsd.avg.num)[2:25], "avg", sep = "_") #add suffix
+
+# mode for factors
+wsd.avg.fac <- wsd %>% arrange(Year) %>%
+  group_by(country) %>%
+  mutate(WorldBankIncomeClass = Mode(WorldBankIncomeClass),
+         RegimeType = Mode(RegimeType),
+         WorldRegion=Mode(WorldRegion),
+         nYears=n()) %>% #count how many years are being averaged for each country
+  ungroup() %>%
+  select(country, WorldBankIncomeClass, RegimeType, WorldRegion, nYears) %>%
+  distinct()
+colnames(wsd.avg.fac)[2:5] <- paste(colnames(wsd.avg.fac)[2:5], "avg", sep = "_") #add suffix
+
+# #make sure modes returned as expected 
+# angola <- wsd$WorldBankIncomeClass[wsd$country=="Angola"]
+# Mode(angola)
+# wsd.avg.fac$WorldBankIncomeClass[wsd.avg.fac$country=="Angola"]
+# #looks good!
+
+wsd.avg <- merge(wsd.avg.fac, wsd.avg.num, by="country") #rejoin num and fac
+table(as.factor(wsd.avg$nYears_avg)) # see yr frequencies
+```
+
+As you can see from the frequency table above, only 60 countries have data for all 18 years. We could restrict this to only including the averages of countries with at least 15 yrs of data by uncommenting the chunk below (filters df down to 99 countries):
+
+```{r}
+# #uncomment to remove any countries that have less than 15 years worth of data
+# wsd.avg <- wsd.avg %>%
+#   subset(nYears_avg >= 15)
+# nrow(wsd.avg)
+```
+
+
+Change in each factor over 10 years (2008-2018)
+
+```{r}
+# change in each parameter over 10 years - figure out how to find change in factors 
+
+# define function to get relative change
+rel.diff <- function(x) {(x - lag(x))/lag(x)} # define function to get relative change
+
+
+wsd.change.num <- wsd %>% 
+  group_by(country) %>%
+  arrange(Year) %>%
+  select_if(is.numeric)%>% # just dealing with numeric for now
+  subset(Year==2018 | Year == 2008) %>%
+  filter(n() >= 2) %>% #make sure country has data for both years
+  mutate(across(where(is.numeric), ~rel.diff(.), .names="{.col}_rel.diff")) %>% # change normalized by baseline values
+  mutate(across(c(!ends_with("diff")), ~diff(.x), .names="{.col}_diff"))  %>%  #absolute change 
+  mutate_if(is.numeric, function(x) ifelse(is.infinite(x), 0, x)) %>% # change Inf values to 0
+  select(-Year, -Year_diff, -Year_rel.diff) %>%
+  drop_na() %>%
+  ungroup()
+
+#now factors
+wsd.change.fac <- wsd %>%
+  select(country, Year, WorldBankIncomeClass, RegimeType)
+# order factors
+wsd.change.fac$WorldBankIncomeClass <- factor(wsd.change.fac$WorldBankIncomeClass, levels=c("Low income", "Lower-middle income", "Upper-middle income", "High income"), ordered=TRUE)
+wsd.change.fac$RegimeType <- factor(wsd.change.fac$RegimeType, levels=c("Closed Autocracy", "Electoral Autocracy", "Electoral Democracy", "Liberal Democracy"), ordered=TRUE)
+
+wsd.change.fac <- wsd.change.fac %>% 
+  group_by(country) %>%
+  arrange(Year) %>%
+  subset(Year==2018 | Year == 2008) %>%
+  filter(n() >= 2) %>% #make sure country has data for both years
+  mutate(WorldBankIncomeClass_diff = unclass(WorldBankIncomeClass) - unclass(lag(WorldBankIncomeClass)),
+         WorldBankIncomeClass_rel.diff = rel.diff(unclass(WorldBankIncomeClass)),
+         RegimeType_diff = unclass(RegimeType) - unclass(lag(RegimeType)),
+         RegimeType_rel.diff = rel.diff(unclass(RegimeType))) %>% 
+  mutate_if(is.numeric, function(x) ifelse(is.infinite(x), 0, x)) %>% # change Inf values to 0
+  select(-Year) %>%
+  drop_na() %>%
+  ungroup()
+
+#now join and drop unnecessary columns used for calculations
+wsd.change <- merge(wsd.change.num, wsd.change.fac, by ="country") %>%
+  select(country, ends_with("diff"))
+```
+
+Merge into one wide wsd dataframe:
+
+```{r}
+# one predictor dataframe to rule them all
+wsd.df_list <- list(wsd.2018, wsd.3yr, wsd.avg, wsd.change) #dfs to merge
+wsd.sum.wide <- wsd.df_list %>% reduce(full_join, by='country') #join
+#skim(wsd.sum.wide)
+
+#here's a long version if you want it
+wsd.sum.long <- wsd.sum.wide %>%
+  select(-WorldBankIncomeClass_rel.diff, -RegimeType_rel.diff) %>%
+  mutate(WorldBankIncomeClass_diff=as.factor(WorldBankIncomeClass_diff),
+         RegimeType_diff=as.factor(RegimeType_diff)) %>%
+  pivot_longer(c(contains("_")), 
+    names_to = c(".value", "type"), 
+    names_sep = "_", 
+    values_drop_na = TRUE
+  )
+
+head(wsd.sum.wide)
+```
+
+## COVID Summary Values
+
+I'll attempt to make the dataframe smaller and more mergable by filtering down into summary variables, similar to WSD. Some possibilities of things we could compare between countries:
+- Date vaccinations start
+- mean daily vaccinations during first 6 months of availability
+- peak daily new deaths & date of that peak (actual date or number days from start)
+- days to binned_people_vaccinated_per_hundred >= X
+- binned_people_vaccinated_per_hundred as of March 2022
+- percent vaccines as of March 2022
+
+```{r}
+skim(covid)
+#last day with data for each country
+last.timepoint <- covid %>% group_by(country) %>%
+  arrange(country,date) %>%
+  slice_tail(n=1) %>%
+  ungroup()
+last.timepoint <- last.timepoint[, which(colMeans(!is.na(last.timepoint)) > 0.5)] #remove cols with NA > 50%
+skim(last.timepoint)
+
+# get missing column names
+missing_vac_cols <-  names(which(colMeans(is.na(last.timepoint)) > 0.5))
+
+# add last reported (within 2022) vaccination info
+vac_info_2022 <- covid %>%
+  drop_na(people_vaccinated_per_hundred) %>%   # filter to keep only non-NA in people_vaccinated_per_hundred
+  group_by(country) %>% 
+  filter(date == max(date)) %>%   # keep last reported date for every country
+  filter(year == 2022) %>% # keep only countries who last reported in 2022 (as we are interested in a recent vaccination status)
+  # filter(month_year == "2022-03-01") # could also filter for march 2022 specifically
+  select(country, date, missing_vac_cols) %>% # keep only variables not yet included in last.timepoint
+  rename(date_last_vac = date)# rename the date to correspond to last reported vaccine info
+
+# merge the last reported vaccination info with last reported cases/deaths info
+last.timepoint <- merge(last.timepoint, vac_info_2022, by = "country")
+
+# #find date of vaccination events
+# table(covid$vaccination_events)
+# table(covid$vaccine_dose_events)
+# table(covid$binned_people_vaccinated_per_hundred)
+```
+Vaccine outcomes
+
+```{r}
+# creating dfs of vaccination events - much of this is from covid_EDA.Rmd and can be removed/cleaned up once Rmds are merged!
+##dat vac start doesn't actually calculate - just earliest date that vaccines were reported but many countries dont have data until a while after starting, ie 70% pop is already vaccinated at day 1
+vac_start_df <- covid %>%
+  select(country, date, vaccination_events, binned_people_vaccinated_per_hundred, people_vaccinated) %>%
+  filter(vaccination_events == "vac_start") %>%
+  mutate(days.to.start_rel = as.numeric(difftime(date, min(date), units = "days")),
+         days.to.start_abs = as.numeric(difftime(date, "2020-12-01", units = "days"))) %>%
+  rename(date.first.vac = date)
+#adding date of first vaccination for each country to the covid df so it can be used as a baseline later - there may be a more elegant way of doing this but im tired
+vac_start_date <- vac_start_df %>% select(country, date.first.vac)
+covid <- full_join(covid, vac_start_date, by ="country")
+
+vac_1_dose <- covid %>%
+  select(country, date, vaccine_dose_events, date.first.vac) %>%
+  filter(vaccine_dose_events == "1_dose")%>%
+  mutate(days.to.1d_rel = as.numeric(difftime(date, min(date), units = "days")),
+         days.to.1d_abs = as.numeric(difftime(date, "2020-12-01", units = "days")), # setting Dec 1, 2020 as vaccine baseline to compare across vaccine events
+         days.to.1d_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))) 
+vac_1_dose[which.min(vac_1_dose$date),] #first country to get one dose per person
+
+vac_2_doses <- covid %>%
+  select(country, date, vaccine_dose_events, date.first.vac) %>%
+  filter(vaccine_dose_events == "2_doses")%>%
+  mutate(days.to.2d_rel = as.numeric(difftime(date, min(date), units = "days")),
+         days.to.2d_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
+         days.to.2d_fromstart = as.numeric(difftime(date, date.first.vac, units = "days")))
+vac_2_doses[which.min(vac_2_doses$date),] #first country to hit 2 doses
+
+vac_50_df <- covid %>%
+  select(country, date, vaccination_events, date.first.vac) %>%
+  filter(vaccination_events == "vac_50pct") %>%
+  mutate(days.to.50pct_rel = as.numeric(difftime(date, min(date), units = "days")),
+         days.to.50pct_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
+         days.to.50pct_fromstart = as.numeric(difftime(date, date.first.vac, units = "days")))
+
+#percent of ppl w/ 1 dose of vaccine as of mar 17 2022
+binned_vac <- covid %>%
+  select(country, date, binned_people_vaccinated_per_hundred) %>%
+  drop_na(binned_people_vaccinated_per_hundred) %>%
+  group_by(country) %>%
+  arrange(date) %>%
+  slice_tail(n=1) %>%
+  ungroup() %>%
+  rename (bin.ppl.vac.per100_17mar22=binned_people_vaccinated_per_hundred)
+#summary(binned_vac$date)
+#n_unique(binned_vac$country) #no countries lost
+
+vac_rate <- covid %>%
+  select(country, date, daily_vaccinations_per_million, date.first.vac) %>%
+  filter(daily_vaccinations_per_million > 0,
+         date <= (date.first.vac %m+% months(6))) %>% # daily vaccinations in 1st 6 mo - make relative to their own vaccine start date
+  drop_na(daily_vaccinations_per_million) %>%
+  group_by(country) %>%
+  summarise(daily.vac.per.mil_6mo = mean(daily_vaccinations_per_million))
+```
+
+``` {r}
+# cases & deaths pre-vaccines
+covid_prevac <- covid %>%
+  group_by(country) %>%
+  subset(date < date.first.vac) %>%
+  arrange(country,date) %>%
+  slice_tail(n=1) %>%
+  ungroup()
+covid_prevac <- covid_prevac[, which(colMeans(!is.na(covid_prevac)) > 0.5)] #remove cols with NA > 50%
+
+# cases & deaths at 1 yr mark (2021-01-22)
+covid_1yr <- covid %>%
+  subset(date == "2021-01-22") #change to deaths/cases prior to vaccine start, normed by pop!
+covid_1yr <- covid_1yr[, which(colMeans(!is.na(covid_1yr)) > 0.5)] #remove cols with NA > 50%
+#sum(is.na(covid_1yr$cumulative_total_cases))
+
+covid.1yr_cum <- covid_1yr %>%
+  select(country, cumulative_total_cases, cumulative_total_deaths, binned_people_vaccinated_per_hundred) %>%
+  rename(cum.cases_1yr = cumulative_total_cases,
+         cum.deaths_1yr = cumulative_total_deaths,
+         bin.ppl.vac.per100_1yr = binned_people_vaccinated_per_hundred)
+
+#cases & deaths march 17, 2022
+covid.final_cum <- last.timepoint %>%
+  select(country, cumulative_total_cases, cumulative_total_deaths, binned_people_vaccinated_per_hundred) %>%
+  rename(cum.cases_final = cumulative_total_cases,
+         cum.deaths_final = cumulative_total_deaths,
+         bin.ppl.vac.per100_final = binned_people_vaccinated_per_hundred) #using . and _ separators to match WSD in case we want to pivot long later
+
+#peak rates
+covid_maxrate <- covid %>%
+  select("country" | contains("new") | contains("daily")) %>%
+  group_by(country) %>%
+  mutate_if(is.numeric, ~replace(., is.na(.), -1)) %>% #temporarily replace na's with -1
+  summarise_if(is.numeric, max) %>%
+  na_if(-1) %>% #set -1's back to na
+  rename(daily.new.cases_max = daily_new_cases,
+         daily.new.deaths_max = daily_new_deaths,
+         monthly.new.cases_max = monthly_new_cases,
+         monthly.new.deaths_max = monthly_new_deaths,
+         weekly.new.cases_max = weekly_new_cases,
+         weekly.new.deaths_max = weekly_new_deaths, # cap at pre-vaccine availability
+         daily.vac.raw_max = daily_vaccinations_raw,
+         daily.vac_max = daily_vaccinations,
+         daily.vac.per.mil_max = daily_vaccinations_per_million) #using . and _ separators to match WSD in case we want to pivot long later
+#n_unique(covid_maxrate$country) #no countries lost
+
+```
+
+
+Now let's merge all these vaccination dfs into one dataframe we can try to predict
+
+``` {r}
+#df for vaccine info
+vac.df_list <- list(vac_1_dose, vac_2_doses, vac_start_df, vac_50_df, binned_vac)
+#drop date and event info since this is contained in col names
+for (i in 1:length(vac.df_list)) {
+  vac.df_list[[i]] <- vac.df_list[[i]] %>% select(-c("date", contains("events")))
+}
+vac.df_list[[length(vac.df_list)+1]] <- vac_rate
+
+vac.sum.wide <- vac.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
+```
+Merging case & death dfs
+
+```{r}
+#df for cases and deaths
+case.df_list <- list(covid.1yr_cum, covid.final_cum, covid_maxrate)
+case.sum.wide <- case.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
+skim(case.sum.wide)
+```
+
+## Merge! Merge! Merge!
+
+``` {r}
+#merging WSD predictors with vaccination summary data
+vac.wsd.wide <- inner_join(vac.sum.wide, wsd.sum.wide, by="country")
+skim(vac.wsd.wide)
+
+#merging WSD predictors with cases, deaths & maxrate data
+case.wsd.wide <- inner_join(case.sum.wide, wsd.sum.wide, by="country")
+skim(case.wsd.wide)
+
+#merging WSD predictors with data as of March 17, 2022 with at least 50% completion
+mar22.wsd.wide <- inner_join(last.timepoint, wsd.sum.wide, by="country")
+skim(mar22.wsd.wide)
+```
+
+Any of the above can be recombined/merged further or pivoted long. Other dataframes that can be merged:
+* `covid_1yr` : cases & deaths at 1 yr mark (2021-01-22)
+* `wsd.sum.long` : long version of WSD summary data with `type` column indicating if data was from a specific year or timeperiod it's averaged over
+
+predict:
+days to vaccine access
+days from vaccine access to 50% ppl
+% ppl vaccinated at march 2022 (absolute counts and binned)
+doses administered at march 2022 (absolute counts and binned)
+
+
+
+
+
