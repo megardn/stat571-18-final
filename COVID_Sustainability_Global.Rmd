@@ -166,7 +166,7 @@ As you can see from the frequency table above, only 60 countries have data for a
 Change in each factor over 10 years (2008-2018)
 
 ```{r}
-# change in each parameter over 10 years - figure out how to find change in factors 
+# change in each parameter over 10 years
 
 # define function to get relative change
 rel.diff <- function(x) {(x - lag(x))/lag(x)} # define function to get relative change
@@ -278,77 +278,84 @@ colnames(last.timepoint)[2:28] <- paste(colnames(last.timepoint)[2:28], "last", 
 ```
 
 Vaccine outcomes:
-NOTE - trying to extract the date that vaccinations started in each country doesn't yield accurate results since some countries were pretty far into vaccinating people before reporting. See comments below and the `vaccination_events  ` chunk in covid_EDA.Rmd.
 
 ```{r}
 # creating dfs of vaccination events - much of this is from covid_EDA.Rmd and can be removed/cleaned up once Rmds are merged!
-## date of vac_start doesn't actually mean the 1st day vaccines were given, just the first day a country reported and were in the process of giving vaccines!
-## many countries dont have data until a while after starting, ie 70% pop is already vaccinated at day 1
 
 vac_start_df <- covid %>%
-  select(country, date, vaccination_events, binned_people_vaccinated_per_hundred, people_vaccinated) %>%
+  select(country, date, vaccination_events, people_vaccinated_per_hundred, people_vaccinated) %>%
   filter(vaccination_events == "vac_start") %>%
   mutate(days.to.start_rel = as.numeric(difftime(date, min(date), units = "days")),
          days.to.start_abs = as.numeric(difftime(date, "2020-12-01", units = "days"))) %>%
   rename(date.first.vac = date)
 
 # adding date of first vaccination for each country to the covid df so it can be used as a baseline later -
-# vac_start_date <- vac_start_df %>% select(country, date.first.vac)
-# covid <- full_join(covid, vac_start_date, by ="country")
+vac_start_date <- vac_start_df %>% select(country, date.first.vac)
+covid <- full_join(covid, vac_start_date, by ="country")
 
 vac_1_dose <- covid %>%
-  select(country, date, vaccine_dose_events) %>% #date.first.vac
+  select(country, date, vaccine_dose_events, date.first.vac) %>% #
   filter(vaccine_dose_events == "1_dose")%>%
   mutate(days.to.1d_rel = as.numeric(difftime(date, min(date), units = "days")),
          days.to.1d_abs = as.numeric(difftime(date, "2020-12-01", units = "days")), # setting Dec 1, 2020 as vaccine baseline to compare across vaccine events
-         #days.to.1d_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
+         days.to.1d_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
          ) 
 vac_1_dose[which.min(vac_1_dose$date),] #first country to get one dose per person
 
 vac_2_doses <- covid %>%
-  select(country, date, vaccine_dose_events) %>% #date.first.vac
+  select(country, date, vaccine_dose_events, date.first.vac) %>%
   filter(vaccine_dose_events == "2_doses")%>%
   mutate(days.to.2d_rel = as.numeric(difftime(date, min(date), units = "days")),
          days.to.2d_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
-         #days.to.2d_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
+         days.to.2d_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
          )
 vac_2_doses[which.min(vac_2_doses$date),] #first country to hit 2 doses
 
 vac_50_df <- covid %>%
-  select(country, date, vaccination_events) %>% #date.first.vac
+  select(country, date, vaccination_events, date.first.vac) %>%
   filter(vaccination_events == "vac_50pct") %>%
   mutate(days.to.50pct_rel = as.numeric(difftime(date, min(date), units = "days")),
          days.to.50pct_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
-         #days.to.50pct_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
+         days.to.50pct_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
          )
 
-#percent of ppl w/ 1 dose of vaccine as of mar 17 2022
-binned_vac <- covid %>%
-  select(country, date, binned_people_vaccinated_per_hundred) %>%
-  drop_na(binned_people_vaccinated_per_hundred) %>%
-  group_by(country) %>%
-  arrange(date) %>%
-  slice_tail(n=1) %>%
-  ungroup() %>%
-  rename (bin.ppl.vac.per100_17mar22=binned_people_vaccinated_per_hundred)
+# #percent of ppl w/ 1 dose of vaccine as of mar 17 2022 - redundant to last.timepoint
+# binned_vac <- covid %>%
+#   select(country, date, binned_people_vaccinated_per_hundred) %>%
+#   drop_na(binned_people_vaccinated_per_hundred) %>%
+#   group_by(country) %>%
+#   arrange(date) %>%
+#   slice_tail(n=1) %>%
+#   ungroup() %>%
+#   rename (bin.ppl.vac.per100_17mar22=binned_people_vaccinated_per_hundred)
 #summary(binned_vac$date)
 #n_unique(binned_vac$country) #no countries lost
 
 vac_rate <- covid %>%
-  select(country, date, daily_vaccinations_per_million) %>% #date.first.vac
+  select(country, date, daily_vaccinations_per_million, date.first.vac) %>% 
   filter(daily_vaccinations_per_million > 0,
-         # date <= (date.first.vac %m+% months(6))) %>% # daily vaccinations in 1st 6 mo - make relative to their own vaccine start date
-         date <= "2021-06-30") %>% #daily vaccinations in 1st 6 mo. of 2021 - best i could think to do w/o accurate vaccine start dates
+         date <= (date.first.vac %m+% months(6))) %>% # daily vaccinations in 1st 6 mo - make relative to their own vaccine start date
   drop_na(daily_vaccinations_per_million) %>% 
   group_by(country) %>%
-  summarise(daily.vac.per.mil_6mo = mean(daily_vaccinations_per_million))
+  summarise(daily.vac.per.mil_6moavg = mean(daily_vaccinations_per_million))
+
+vac_maxrate <- covid %>%
+  select(country, date, daily_vaccinations_per_million, daily_vaccinations_raw, daily_vaccinations) %>% 
+  group_by(country) %>%
+  mutate_if(is.numeric, ~replace(., is.na(.), -1)) %>% #temporarily replace na's with -1
+  summarise_if(is.numeric, max) %>%
+  na_if(-1) %>% #set -1's back to na
+  rename(daily.vac.raw_max = daily_vaccinations_raw,
+         daily.vac_max = daily_vaccinations,
+         daily.vac.per.mil_max = daily_vaccinations_per_million)
 ```
 
 ``` {r}
-# cases & deaths (couldn't subset to prevaccines in each country, see above)
+# cases & deaths up until vaccines start
 covid_prevac <- covid %>%
   group_by(country) %>%
-  subset(date < mean(vac_start_df$date.first.vac)) %>% #setting mean of all reported vac_start days ~ don't love it but maybe in aggregate they're representative
+  drop_na(date.first.vac) %>%
+  subset(date < date.first.vac) %>%
   arrange(country,date) %>%
   slice_tail(n=1) %>%
   ungroup() %>%
@@ -356,23 +363,20 @@ covid_prevac <- covid %>%
 colnames(covid_prevac)[2:19] <- paste(colnames(covid_prevac)[2:19], "prevac", sep = "_") #add suffix
 
 
-# cases & deaths at 1 yr mark (2021-01-22)
+# cases & deaths at 1 yr after date.first.vac
 covid_1yr <- covid %>%
-  subset(date == "2021-01-22") %>%
+  group_by(country) %>%
+  drop_na(date.first.vac) %>%
+  subset(date == (date.first.vac %m+% months(12))) %>%
   select("country"| contains("case") | contains("death"))
 colnames(covid_1yr)[2:19] <- paste(colnames(covid_1yr)[2:19], "1yr", sep = "_") #add suffix
 #covid_1yr <- covid_1yr[, which(colMeans(!is.na(covid_1yr)) > 0.5)] #remove cols with NA > 50%
 #sum(is.na(covid_1yr$cumulative_total_cases))
 
-# covid.1yr_cum <- covid_1yr %>%
-#   select(country, cumulative_total_cases, cumulative_total_deaths, binned_people_vaccinated_per_hundred) %>%
-#   rename(cum.cases_1yr = cumulative_total_cases,
-#          cum.deaths_1yr = cumulative_total_deaths,
-#          bin.ppl.vac.per100_1yr = binned_people_vaccinated_per_hundred)
-
-#peak rates
+#peak rates up until vaccinations start
 covid_maxrate <- covid %>%
-  subset(date < mean(vac_start_df$date.first.vac)) %>% #setting mean of all reported vac_start days ~ don't love it but maybe in aggregate they're representative
+  drop_na(date.first.vac) %>%
+  subset(date < date.first.vac) %>% 
   select("country" | contains("new") | contains("daily")) %>%
   group_by(country) %>%
   mutate_if(is.numeric, ~replace(., is.na(.), -1)) %>% #temporarily replace na's with -1
@@ -383,25 +387,21 @@ covid_maxrate <- covid %>%
          monthly.new.cases.per.100_max = monthly_new_cases_per_hundred,
          monthly.new.deaths.per.100_max = monthly_new_deaths_per_hundred,
          weekly.new.cases.per.100_max = weekly_new_cases_per_hundred,
-         weekly.new.deaths.per.100_max = weekly_new_deaths_per_hundred, # cap at pre-vaccine availability
-         daily.vac.raw_max = daily_vaccinations_raw,
-         daily.vac_max = daily_vaccinations,
-         daily.vac.per.mil_max = daily_vaccinations_per_million) #using . and _ separators to match WSD in case we want to pivot long later
+         weekly.new.deaths.per.100_max = weekly_new_deaths_per_hundred) #using . and _ separators to match WSD in case we want to pivot long later
 #n_unique(covid_maxrate$country) #one country lost filtering to pre "2021-02-20"
 
 ```
 
 
-Now let's merge all these vaccination dfs into one dataframe we can try to predict
+Now let's merge all these vaccination dfs into one dataframe we can try to predict - RUN PCA HERE!
 
 ``` {r}
 #df for vaccine info
-vac.df_list <- list(vac_1_dose, vac_2_doses, vac_start_df, vac_50_df, binned_vac)
+vac.df_list <- list(vac_1_dose, vac_2_doses, vac_start_df, vac_50_df, vac_rate, vac_maxrate)
 #drop date and event info since this is contained in col names
 for (i in 1:length(vac.df_list)) {
   vac.df_list[[i]] <- vac.df_list[[i]] %>% select(-c(contains("date"), contains("events")))
 }
-vac.df_list[[length(vac.df_list)+1]] <- vac_rate
 
 vac.sum.wide <- vac.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
 ```
@@ -422,11 +422,6 @@ covid.df_list <- list(case.sum.wide, vac.sum.wide, last.timepoint)
 covid.all <- covid.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
 n_unique(covid.all$country)
 skim(covid.all)
-
-# c1 <-unique(covid$country)
-# c2 <- unique(covid.all$country)
-#setdiff(c1, c2)
-#Palau dropped from summary data - ok since it's not in WSD anyway
 ```
 
 
@@ -446,7 +441,8 @@ mar22.wsd.wide <- inner_join(last.timepoint, wsd.sum.wide, by="country")
 #skim(mar22.wsd.wide)
 
 #merging everything!
-wsd.covid.all <- inner_join()
+wsd.covid.all <- inner_join(covid.all, wsd.sum.wide, by="country")
+skim(wsd.covid.all)
 ```
 
 Any of the above can be recombined/merged further or pivoted long.
