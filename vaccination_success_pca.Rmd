@@ -44,3 +44,15 @@ summary(vax.pca2)
 
 Looks like PC1 can be interpreted as how poorly a country did (take the negative sign to indicate how well it did). 
 
+append it to the csv and save
+```{r}
+data.with.VSI <- vax.clean # copy the data
+data.with.VSI$VSI <- -vax.pca2$x[,1] # append the VSI (inverse signed PC1 scores)
+
+write.csv(data.with.VSI, "data/VaccinationSucessIndexData.csv", row.names = FALSE)
+
+
+```
+
+
+
