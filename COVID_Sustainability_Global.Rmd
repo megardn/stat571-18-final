@@ -404,6 +404,7 @@ for (i in 1:length(vac.df_list)) {
 }
 
 vac.sum.wide <- vac.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
+write.csv(vac.sum.wide, "data/vaccination_summary_wide.csv", row.names = FALSE)
 ```
 
 Merging case & death dfs

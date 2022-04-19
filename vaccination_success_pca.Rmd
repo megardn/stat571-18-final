@@ -1,0 +1,46 @@
+---
+title: "Vaccination Success PCA"
+output: html_notebook
+---
+
+Load packaged
+```{r}
+library(pacman)
+p_load(dplyr, tidyverse, ggplot2, car, skimr, nnet, randomForest, factoextra)
+```
+
+Read Summary Variables
+```{r}
+vax.summary <- read.csv('data/vaccination_summary_wide.csv')
+skim(vax.summary)
+```
+
+That's  lot of missing values... let me extract just the columns that have at least 70%. Then, remove the rows with NAs. 
+```{r}
+vax.70 <- vax.summary[, apply(vax.summary, 2, function(col)sum(is.na(col))/length(col)) < 0.30]
+skim(vax.70)
+vax.clean <- na.omit(vax.70)
+skim(vax.clean)
+```
+
+Ok, now let's apply PCA on the cleaned dataset to see if we can develop some kind of vaccination success index. 
+```{r}
+vax.pca <- prcomp(x = vax.clean[,-1], scale. = TRUE, center = TRUE)
+vax.pca$rotation
+summary(vax.pca)
+```
+
+Percent Variance Explained 
+```{r}
+plot(summary(vax.pca)$importance[3,], ylab = "Cummulative Pct. Variance Explained", xlab = "PC", main = "Cummulative PVE")
+```
+
+Ok, let's see if we can trim some fat. Seems not all the summary variables are especially useful. 
+```{r}
+vax.pca2 <- prcomp(x = vax.clean[,c(-1, -3, -5, -7, -8)], scale. = TRUE, center = TRUE)
+vax.pca2$rotation
+summary(vax.pca2)
+```
+
+Looks like PC1 can be interpreted as how poorly a country did (take the negative sign to indicate how well it did). 
+
