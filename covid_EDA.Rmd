@@ -388,9 +388,14 @@ df_merged <- merge(df_cases,
 df_merged <- df_merged %>%
   group_by(country) %>%
   mutate(vaccination_events = as.factor(case_when(people_vaccinated_per_hundred >= 90 ~ "vac_90pct",
+                                        people_vaccinated_per_hundred >= 80 ~ "vac_80pct",
                                         people_vaccinated_per_hundred >= 70 ~ "vac_70pct",
+                                        people_vaccinated_per_hundred >= 60 ~ "vac_60pct",
                                         people_vaccinated_per_hundred >= 50 ~ "vac_50pct",
+                                        people_vaccinated_per_hundred >= 40 ~ "vac_40pct",
                                         people_vaccinated_per_hundred >= 30 ~ "vac_30pct",
+                                        people_vaccinated_per_hundred >= 20 ~ "vac_20pct",
+                                        people_vaccinated_per_hundred >= 10 ~ "vac_10pct",
                                         people_vaccinated_per_hundred >= 0 & people_vaccinated_per_hundred < 10 ~ "vac_start",
                                         TRUE ~ "no")),
          vaccination_events = replace(vaccination_events, duplicated(vaccination_events), NA) # keep only first occurrence of an event
@@ -399,15 +404,20 @@ df_merged <- df_merged %>%
 # check outputs
 # df_merged[df_merged$country == "Sweden", c("date", "people_vaccinated_per_hundred", "vaccination_events")]
 
-# Add percent vaccinated bins variable to main df
+# Add percent vaccinated bins (% vaccinated at final reporting) variable to main df
 bins_df <- df_vac_nona_clean %>%
   group_by(country) %>%
   filter(date == max(date)) %>%
   # create new binning variable
-  mutate(binned_people_vaccinated_per_hundred = case_when(people_vaccinated_per_hundred < 30 ~ "Under 30%", 
-                                                          people_vaccinated_per_hundred >= 30 & people_vaccinated_per_hundred < 50 ~ "30-50%",
-                                                          people_vaccinated_per_hundred >= 50 & people_vaccinated_per_hundred < 70 ~ "50-70%",
-                                                          people_vaccinated_per_hundred >= 70 & people_vaccinated_per_hundred < 90 ~ "70-90%",
+  mutate(binned_people_vaccinated_per_hundred = case_when(people_vaccinated_per_hundred < 10 ~ "Under 10%", 
+                                                          people_vaccinated_per_hundred >= 10 & people_vaccinated_per_hundred < 20 ~ "10-20%",
+                                                          people_vaccinated_per_hundred >= 20 & people_vaccinated_per_hundred < 30 ~ "20-30%",
+                                                          people_vaccinated_per_hundred >= 30 & people_vaccinated_per_hundred < 40 ~ "30-40%",
+                                                          people_vaccinated_per_hundred >= 40 & people_vaccinated_per_hundred < 50 ~ "40-50%",
+                                                          people_vaccinated_per_hundred >= 50 & people_vaccinated_per_hundred < 60 ~ "50-60%",
+                                                          people_vaccinated_per_hundred >= 60 & people_vaccinated_per_hundred < 70 ~ "60-70%",
+                                                          people_vaccinated_per_hundred >= 70 & people_vaccinated_per_hundred < 80 ~ "70-80%",
+                                                          people_vaccinated_per_hundred >= 80 & people_vaccinated_per_hundred < 90 ~ "80-90%",
                                                           people_vaccinated_per_hundred >= 90 ~ "Above 90%"
                                                           )) %>%
   select(country, binned_people_vaccinated_per_hundred)

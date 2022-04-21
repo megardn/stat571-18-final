@@ -246,15 +246,15 @@ I'll attempt to make the dataframe smaller and more mergable by filtering down i
 ```{r}
 skim(covid)
 #last day with data for each country
-last.timepoint <- covid %>% group_by(country) %>%
+last.timepoint1 <- covid %>% group_by(country) %>%
   arrange(country,date) %>%
   slice_tail(n=1) %>%
   ungroup()
-last.timepoint <- last.timepoint[, which(colMeans(!is.na(last.timepoint)) > 0.5)] #remove cols with NA > 50%
+last.timepoint_filt <- last.timepoint1[, which(colMeans(!is.na(last.timepoint1)) > 0.5)] #remove cols with NA > 50%
 skim(last.timepoint)
 
 # get missing column names
-missing_vac_cols <-  names(which(colMeans(is.na(last.timepoint)) > 0.5))
+missing_vac_cols <-  names(which(colMeans(is.na(last.timepoint1)) > 0.5))
 
 # add last reported (within 2022) vaccination info
 vac_info_2022 <- covid %>%
@@ -267,8 +267,8 @@ vac_info_2022 <- covid %>%
   rename(date.vac = date)# rename the date to correspond to last reported vaccine info
 
 # merge the last reported vaccination info with last reported cases/deaths info
-last.timepoint <- merge(last.timepoint, vac_info_2022, by = "country")
-colnames(last.timepoint)[2:28] <- paste(colnames(last.timepoint)[2:28], "last", sep = "_") #add suffix
+last.timepoint <- merge(last.timepoint_filt, vac_info_2022, by = "country")
+colnames(last.timepoint)[2:44] <- paste(colnames(last.timepoint)[2:44], "last", sep = "_") #add suffix
 
 
 # #find date of vaccination events
@@ -281,9 +281,8 @@ Vaccine outcomes:
 
 ```{r}
 # creating dfs of vaccination events - much of this is from covid_EDA.Rmd and can be removed/cleaned up once Rmds are merged!
-
 vac_start_df <- covid %>%
-  select(country, date, vaccination_events, people_vaccinated_per_hundred, people_vaccinated) %>%
+  select(country, date, vaccination_events) %>%
   filter(vaccination_events == "vac_start") %>%
   mutate(days.to.start_rel = as.numeric(difftime(date, min(date), units = "days")),
          days.to.start_abs = as.numeric(difftime(date, "2020-12-01", units = "days"))) %>%
@@ -293,6 +292,7 @@ vac_start_df <- covid %>%
 vac_start_date <- vac_start_df %>% select(country, date.first.vac)
 covid <- full_join(covid, vac_start_date, by ="country")
 
+#days until country admins 1 dose per person
 vac_1_dose <- covid %>%
   select(country, date, vaccine_dose_events, date.first.vac) %>% #
   filter(vaccine_dose_events == "1_dose")%>%
@@ -302,6 +302,7 @@ vac_1_dose <- covid %>%
          ) 
 vac_1_dose[which.min(vac_1_dose$date),] #first country to get one dose per person
 
+#days until country admins 2 doses per person
 vac_2_doses <- covid %>%
   select(country, date, vaccine_dose_events, date.first.vac) %>%
   filter(vaccine_dose_events == "2_doses")%>%
@@ -311,6 +312,38 @@ vac_2_doses <- covid %>%
          )
 vac_2_doses[which.min(vac_2_doses$date),] #first country to hit 2 doses
 
+#days until country reports vaccinating 10% of pop
+vac_10_df <- covid %>%
+  select(country, date, vaccination_events, date.first.vac) %>%
+  filter(vaccination_events == "vac_10pct") %>%
+  mutate(days.to.10pct_rel = as.numeric(difftime(date, min(date), units = "days")),
+         days.to.10pct_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
+         days.to.10pct_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
+         )
+nrow(vac_10_df)
+
+#days until country reports vaccinating 20% of pop
+vac_20_df <- covid %>%
+  select(country, date, vaccination_events, date.first.vac) %>%
+  filter(vaccination_events == "vac_20pct") %>%
+  mutate(days.to.20pct_rel = as.numeric(difftime(date, min(date), units = "days")),
+         days.to.20pct_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
+         days.to.20pct_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
+         )
+nrow(vac_20_df)
+
+#days until country reports vaccinating 30% of pop
+vac_30_df <- covid %>%
+  select(country, date, vaccination_events, date.first.vac) %>%
+  filter(vaccination_events == "vac_30pct") %>%
+  mutate(days.to.30pct_rel = as.numeric(difftime(date, min(date), units = "days")),
+         days.to.30pct_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
+         days.to.30pct_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
+         )
+nrow(vac_30_df)
+n_unique(vac_30_df$country)
+
+#days until country reports vaccinating 50% of pop
 vac_50_df <- covid %>%
   select(country, date, vaccination_events, date.first.vac) %>%
   filter(vaccination_events == "vac_50pct") %>%
@@ -331,6 +364,8 @@ vac_50_df <- covid %>%
 #summary(binned_vac$date)
 #n_unique(binned_vac$country) #no countries lost
 
+
+# mean daily rate of vaccinations per million ppl in first 6 months of each country's administration
 vac_rate <- covid %>%
   select(country, date, daily_vaccinations_per_million, date.first.vac) %>% 
   filter(daily_vaccinations_per_million > 0,
@@ -339,6 +374,7 @@ vac_rate <- covid %>%
   group_by(country) %>%
   summarise(daily.vac.per.mil_6moavg = mean(daily_vaccinations_per_million))
 
+# max rate of vaccinations administration
 vac_maxrate <- covid %>%
   select(country, date, daily_vaccinations_per_million, daily_vaccinations_raw, daily_vaccinations) %>% 
   group_by(country) %>%
@@ -393,24 +429,43 @@ covid_maxrate <- covid %>%
 ```
 
 
-Now let's merge all these vaccination dfs into one dataframe we can try to predict - RUN PCA HERE!
+Now let's merge all these vaccination dfs into one dataframe we can try to predict!
+First we'll dump all the vaccine-related stuff into one big dataframe here:
 
 ``` {r}
-#df for vaccine info
-vac.df_list <- list(vac_1_dose, vac_2_doses, vac_start_df, vac_50_df, vac_rate, vac_maxrate)
+#big df for vaccine info
+last.vac <- last.timepoint %>% select("country"| contains("vacc"))#get just vaccine stuff from  last.timepoint
+vac.df_list <- list(vac_1_dose, vac_2_doses, vac_start_df, vac_10_df, vac_20_df, vac_30_df, vac_50_df, vac_rate, vac_maxrate, last.vac)
 #drop date and event info since this is contained in col names
 for (i in 1:length(vac.df_list)) {
-  vac.df_list[[i]] <- vac.df_list[[i]] %>% select(-c(contains("date"), contains("events")))
+  vac.df_list[[i]] <- vac.df_list[[i]] %>% select(-c(contains("date") | contains("events")))
 }
 
-vac.sum.wide <- vac.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
-write.csv(vac.sum.wide, "data/vaccination_summary_wide.csv", row.names = FALSE)
+vac.dump <- vac.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
+skim(vac.dump)
 ```
+
+Now we'll pair it down to keep only key variables that aren't redundant/highly correlated to run PCA on. NOTE: feel free to update/make changes to what's been kept!
+
+```{r}
+vac.sum <- vac.dump %>% select(
+  country, 
+  days.to.start_rel, #days until a country reports starting to administer vaccines, with the 1st country to start vaccinating as a baseline
+  days.to.10pct_fromstart, #days between starting vaccinations and administering to 10% of pop
+  daily.vac.per.mil_6moavg, #mean daily vaccinations in the first 6 months of administering
+  people_vaccinated_per_hundred_last, #number of ppl vaccinated at last report (sometime in 2022)
+  daily.vac.per.mil_max, #max number of vaccinations reported in a single day
+)
+
+write.csv(vac.sum, "data/vaccination_summary.csv", row.names = FALSE)
+```
+
 
 Merging case & death dfs
 
 ```{r}
 #df for cases and deaths
+#grab just case/death stuff from last.timepoint
 case.df_list <- list(covid_prevac, covid_1yr, covid_maxrate)
 case.sum.wide <- case.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
 skim(case.sum.wide)
@@ -419,7 +474,7 @@ skim(case.sum.wide)
 Merge all COVID summary data
 
 ```{r}
-covid.df_list <- list(case.sum.wide, vac.sum.wide, last.timepoint)
+covid.df_list <- list(case.sum.wide, vac.sum.wide)
 covid.all <- covid.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
 n_unique(covid.all$country)
 skim(covid.all)
