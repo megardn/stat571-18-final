@@ -499,6 +499,7 @@ mar22.wsd.wide <- inner_join(last.timepoint, wsd.sum.wide, by="country")
 #merging everything!
 wsd.covid.all <- inner_join(covid.all, wsd.sum.wide, by="country")
 skim(wsd.covid.all)
+
 ```
 
 Any of the above can be recombined/merged further or pivoted long.
