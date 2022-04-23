@@ -251,7 +251,7 @@ last.timepoint1 <- covid %>% group_by(country) %>%
   slice_tail(n=1) %>%
   ungroup()
 last.timepoint_filt <- last.timepoint1[, which(colMeans(!is.na(last.timepoint1)) > 0.5)] #remove cols with NA > 50%
-skim(last.timepoint)
+#skim(last.timepoint_filt)
 
 # get missing column names
 missing_vac_cols <-  names(which(colMeans(is.na(last.timepoint1)) > 0.5))
@@ -268,8 +268,8 @@ vac_info_2022 <- covid %>%
 
 # merge the last reported vaccination info with last reported cases/deaths info
 last.timepoint <- merge(last.timepoint_filt, vac_info_2022, by = "country")
-colnames(last.timepoint)[2:44] <- paste(colnames(last.timepoint)[2:44], "last", sep = "_") #add suffix
-
+colnames(last.timepoint)[2:43] <- paste(colnames(last.timepoint)[2:43], "last", sep = "_") #add suffix
+#names(last.timepoint)
 
 # #find date of vaccination events
 # table(covid$vaccination_events)
@@ -418,12 +418,14 @@ covid_maxrate <- covid %>%
   mutate_if(is.numeric, ~replace(., is.na(.), -1)) %>% #temporarily replace na's with -1
   summarise_if(is.numeric, max) %>%
   na_if(-1) %>% #set -1's back to na
-  rename(daily.new.cases.per.100_max = daily_new_cases_per_hundred,
-         daily.new.deaths.per.100_max = daily_new_deaths_per_hundred,
-         monthly.new.cases.per.100_max = monthly_new_cases_per_hundred,
-         monthly.new.deaths.per.100_max = monthly_new_deaths_per_hundred,
-         weekly.new.cases.per.100_max = weekly_new_cases_per_hundred,
-         weekly.new.deaths.per.100_max = weekly_new_deaths_per_hundred) #using . and _ separators to match WSD in case we want to pivot long later
+  rename(daily.new.cases.per.100 = daily_new_cases_per_hundred,
+         daily.new.deaths.per.100 = daily_new_deaths_per_hundred,
+         monthly.new.cases.per.100 = monthly_new_cases_per_hundred,
+         monthly.new.deaths.per.100 = monthly_new_deaths_per_hundred,
+         weekly.new.cases.per.100 = weekly_new_cases_per_hundred,
+         weekly.new.deaths.per.100 = weekly_new_deaths_per_hundred) #using . and _ separators to match WSD in case we want to pivot long later
+colnames(covid_maxrate)[2:16] <- paste(colnames(covid_maxrate)[2:16], "max", sep = "_") #add suffix
+
 #n_unique(covid_maxrate$country) #one country lost filtering to pre "2021-02-20"
 
 ```
@@ -465,8 +467,8 @@ Merging case & death dfs
 
 ```{r}
 #df for cases and deaths
-#grab just case/death stuff from last.timepoint
-case.df_list <- list(covid_prevac, covid_1yr, covid_maxrate)
+last.case <- last.timepoint %>% select("country", "date_last" | contains("case") | contains("death")) #get just cases & deaths stuff from  last.timepoint
+case.df_list <- list(covid_prevac, covid_1yr, covid_maxrate, last.case)
 case.sum.wide <- case.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
 skim(case.sum.wide)
 ```
@@ -474,7 +476,7 @@ skim(case.sum.wide)
 Merge all COVID summary data
 
 ```{r}
-covid.df_list <- list(case.sum.wide, vac.sum.wide)
+covid.df_list <- list(case.sum.wide, vac.dump)
 covid.all <- covid.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
 n_unique(covid.all$country)
 skim(covid.all)
@@ -485,7 +487,7 @@ skim(covid.all)
 
 ``` {r}
 #merging WSD predictors with vaccination summary data
-vac.wsd.wide <- inner_join(vac.sum.wide, wsd.sum.wide, by="country")
+vac.wsd.wide <- inner_join(vac.dump, wsd.sum.wide, by="country")
 #skim(vac.wsd.wide)
 
 #merging WSD predictors with cases, deaths & maxrate data
@@ -499,7 +501,6 @@ mar22.wsd.wide <- inner_join(last.timepoint, wsd.sum.wide, by="country")
 #merging everything!
 wsd.covid.all <- inner_join(covid.all, wsd.sum.wide, by="country")
 skim(wsd.covid.all)
-
 ```
 
 Any of the above can be recombined/merged further or pivoted long.
@@ -513,6 +514,8 @@ doses administered at march 2022 (absolute counts and binned)
 
 ## Modeling
 
+Predicting inverse signed PC1 scores (from `data/VaccinationSucessIndexData-New.csv`) using `case.wsd.wide`.
+
 ```{r}
 #read in
 new.data.with.VSI <- read.csv("data/VaccinationSucessIndexData-New.csv")
@@ -520,8 +523,13 @@ new.data.with.VSI <- read.csv("data/VaccinationSucessIndexData-New.csv")
 #adding in PC1
 yval <- new.data.with.VSI %>% select("country", "VSI")
 df <- inner_join(case.wsd.wide, yval,  by=("country"))
+names(df)
 ```
+
 Building a couple linear models:
+
+Picking variables:
+* `Electricity.Access_3yr` - since this would be related to infrastructure used for vaccination
 
 ```{r}
 fit2 <- lm(log_income ~ ASVAB_PC1 + ASVAB_PC2 + Gender, data = df)
@@ -534,10 +542,10 @@ fit4 <- lm(log_income ~ ASVAB_PC1 + ASVAB_PC2 + Gender + Educ, data = df)
 summary(fit4)
 ```
 
-
 Attempting neural nets:
 
 ```{r}
 
 
 ```
+
