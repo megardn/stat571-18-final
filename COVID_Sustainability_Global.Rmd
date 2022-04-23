@@ -510,6 +510,33 @@ days from vaccine access to 50% ppl
 doses administered at march 2022 (absolute counts and binned)
 
 
+## Modeling
+
+```{r}
+#read in
+new.data.with.VSI <- read.csv("data/VaccinationSucessIndexData-New.csv")
+
+#adding in PC1
+yval <- new.data.with.VSI %>% select("country", "VSI")
+df <- inner_join(case.wsd.wide, yval,  by=("country"))
+```
+Building a couple linear models:
+
+```{r}
+fit2 <- lm(log_income ~ ASVAB_PC1 + ASVAB_PC2 + Gender, data = df)
+summary(fit2)
+
+fit3 <- lm(log_income ~ ASVAB_PC1 + ASVAB_PC2 + Gender + Race, data = df)
+Anova(fit3)
+
+fit4 <- lm(log_income ~ ASVAB_PC1 + ASVAB_PC2 + Gender + Educ, data = df)
+summary(fit4)
+```
 
 
+Attempting neural nets:
 
+```{r}
+
+
+```
