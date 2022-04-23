@@ -465,8 +465,8 @@ Merging case & death dfs
 
 ```{r}
 #df for cases and deaths
-#grab just case/death stuff from last.timepoint
-case.df_list <- list(covid_prevac, covid_1yr, covid_maxrate)
+last.case <- last.timepoint %>% select("country", "date_last" | contains("case") | contains("death")) #get just cases & deaths stuff from  last.timepoint
+case.df_list <- list(covid_prevac, covid_1yr, covid_maxrate, last.case)
 case.sum.wide <- case.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
 skim(case.sum.wide)
 ```
@@ -510,6 +510,16 @@ days from vaccine access to 50% ppl
 doses administered at march 2022 (absolute counts and binned)
 
 
+## Modeling
+Predicting inverse signed PC1 scores (from `data/VaccinationSucessIndexData-New.csv`) using `case.wsd.wide`.
 
+```{r}
+#read in
+new.data.with.VSI <- read.csv("data/VaccinationSucessIndexData-New.csv")
+names(new.data.with.VSI)
+
+#wsd.covid.all
+
+```
 
 
