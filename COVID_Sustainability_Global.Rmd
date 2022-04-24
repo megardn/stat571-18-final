@@ -413,7 +413,8 @@ colnames(covid_1yr)[2:19] <- paste(colnames(covid_1yr)[2:19], "1yr", sep = "_") 
 covid_maxrate <- covid %>%
   drop_na(date.first.vac) %>%
   subset(date < date.first.vac) %>% 
-  select("country" | contains("new") | contains("daily")) %>%
+  select("country" | contains(c("new", "daily"))) %>%
+  select(-contains("vac")) %>% #drop vac cols
   group_by(country) %>%
   mutate_if(is.numeric, ~replace(., is.na(.), -1)) %>% #temporarily replace na's with -1
   summarise_if(is.numeric, max) %>%
@@ -424,7 +425,7 @@ covid_maxrate <- covid %>%
          monthly.new.deaths.per.100 = monthly_new_deaths_per_hundred,
          weekly.new.cases.per.100 = weekly_new_cases_per_hundred,
          weekly.new.deaths.per.100 = weekly_new_deaths_per_hundred) #using . and _ separators to match WSD in case we want to pivot long later
-colnames(covid_maxrate)[2:16] <- paste(colnames(covid_maxrate)[2:16], "max", sep = "_") #add suffix
+colnames(covid_maxrate)[2:13] <- paste(colnames(covid_maxrate)[2:13], "max", sep = "_") #add suffix
 
 #n_unique(covid_maxrate$country) #one country lost filtering to pre "2021-02-20"
 
