@@ -413,7 +413,8 @@ colnames(covid_1yr)[2:19] <- paste(colnames(covid_1yr)[2:19], "1yr", sep = "_") 
 covid_maxrate <- covid %>%
   drop_na(date.first.vac) %>%
   subset(date < date.first.vac) %>% 
-  select("country" | contains("new") | contains("daily")) %>%
+  select("country" | contains(c("new", "daily"))) %>%
+  select(-contains("vac")) %>% #drop vac cols
   group_by(country) %>%
   mutate_if(is.numeric, ~replace(., is.na(.), -1)) %>% #temporarily replace na's with -1
   summarise_if(is.numeric, max) %>%
@@ -424,7 +425,7 @@ covid_maxrate <- covid %>%
          monthly.new.deaths.per.100 = monthly_new_deaths_per_hundred,
          weekly.new.cases.per.100 = weekly_new_cases_per_hundred,
          weekly.new.deaths.per.100 = weekly_new_deaths_per_hundred) #using . and _ separators to match WSD in case we want to pivot long later
-colnames(covid_maxrate)[2:16] <- paste(colnames(covid_maxrate)[2:16], "max", sep = "_") #add suffix
+colnames(covid_maxrate)[2:13] <- paste(colnames(covid_maxrate)[2:13], "max", sep = "_") #add suffix
 
 #n_unique(covid_maxrate$country) #one country lost filtering to pre "2021-02-20"
 
@@ -521,26 +522,86 @@ Predicting inverse signed PC1 scores (from `data/VaccinationSucessIndexData-New.
 new.data.with.VSI <- read.csv("data/VaccinationSucessIndexData-New.csv")
 
 #adding in PC1
-yval <- new.data.with.VSI %>% select("country", "VSI")
+yval <- new.data.with.VSI %>% dplyr::select("country", "VSI")
 df <- inner_join(case.wsd.wide, yval,  by=("country"))
-names(df)
+#names(df)
+n_unique(df$country)
 ```
+
+Subdividing our dataset into `data.train`(60%), `data.test` (20%), and `data.val` (20%)
+
+```{r}
+# Split the data 
+N <- length(df$country)
+n1 <- floor(.6*N)
+n2 <- floor(.2*N)
+
+set.seed(10)
+
+# Split data to three portions of .6, .2 and .2 of data size N
+idx_train <- sample(N, n1)
+idx_no_train <- (which(! seq(1:N) %in% idx_train))
+idx_test <- sample(idx_no_train, n2)
+idx_val <- which(! idx_no_train %in% idx_test)
+data.train <- as.data.frame(df[idx_train,])
+data.test <- as.data.frame(df[idx_test,])
+data.val <- as.data.frame(df[idx_val,])
+``` 
 
 Building a couple linear models:
 
-Picking variables:
+Picking variables for backward selection:
+* `Continent`
 * `Electricity.Access_3yr` - since this would be related to infrastructure used for vaccination
+* `cumulative_total_cases_per_hundred_prevac` - index of disease prevalence
+* `cumulative_total_deaths_per_hundred_prevac` - index of disease severity
+* `weekly.new.deaths.per.100_max` - max weekly death rate
+* `GDP.PerCapita.Current_2018` - latest GDP per capita
+* `UrbanPopulation.Prop_3yr` - how urban is pop
+* `LifeExpenctancy_rel.diff` - change in health metric over time (tracks increase or decrease in pop health)
+* `Trade.GDP_3yr` - see how much of economy is based in trade
+* `CompulsoryEducationDurationYears_3yr` - level of education
+
+Couple forward selections:
+```{r}
+fit1 <- lm(VSI ~ GDP.PerCapita.Current_2018, data.train)
+Anova(fit1)
+fit2 <- update(fit1, .~. + UrbanPopulation.Prop_3yr)
+Anova(fit2)
+fit3 <- update(fit2, .~. + cumulative_total_deaths_per_hundred_prevac)
+Anova(fit3) #cumulative_total_deaths_per_hundred_prevac not significant
+
+
+#try interactions
+fit4 <- lm(VSI ~ GDP.PerCapita.Current_2018 + Continent + GDP.PerCapita.Current_2018*Continent, data.train)
+Anova(fit4)
+
+fit5 <- lm(VSI ~ GDP.PerCapita.Current_2018 + weekly.new.deaths.per.100_max + GDP.PerCapita.Current_2018*weekly.new.deaths.per.100_max, data.train)
+Anova(fit5)
+```
+
+Running regsubsets:
 
 ```{r}
-fit2 <- lm(log_income ~ ASVAB_PC1 + ASVAB_PC2 + Gender, data = df)
-summary(fit2)
+#subset data.train & data.test together since Cp will approx test error
+data.fit <- as.data.frame(df[-idx_val,]) %>% select(VSI, cumulative_total_cases_per_hundred_prevac, cumulative_total_deaths_per_hundred_prevac, weekly.new.deaths.per.100_max, Continent, Electricity.Access_3yr, GDP.PerCapita.Current_2018, UrbanPopulation.Prop_3yr, LifeExpenctancy_rel.diff, Trade.GDP_3yr, CompulsoryEducationDurationYears_3yr)
 
-fit3 <- lm(log_income ~ ASVAB_PC1 + ASVAB_PC2 + Gender + Race, data = df)
-Anova(fit3)
+fit1 <- regsubsets(VSI ~., data.fit1 , nvmax=25, method="exhaustive")
+f.e <- summary(fit1)
+opt.size <- which.min(f.e$cp) #pick size with lowest cp
+fit.exh.var <- f.e$which # logic indicators which variables are in
+colnames(fit.exh.var)[fit.exh.var[opt.size,]][-1] # output variables selected
+fit2 <- lm(VSI ~ Continent+Electricity.Access_3yr+GDP.PerCapita.Current_2018+CompulsoryEducationDurationYears_3yr, data.fit1)    # fit with selected variables
+Anova(fit2) 
+#note - not all significant but should stick with model minimizing Cp, right?
 
-fit4 <- lm(log_income ~ ASVAB_PC1 + ASVAB_PC2 + Gender + Educ, data = df)
-summary(fit4)
+#check assumptions - NOTE - not great!
+par(mfrow=c(1,2))
+plot(fit2, 1) #linearity & homoscedasticity
+plot(fit2, 2) #normality
 ```
+
+
 
 Attempting neural nets:
 
