@@ -1,0 +1,108 @@
+---
+title: "Linear Regression and Random Forest"
+output: html_notebook
+---
+
+Setup
+```{r}
+library(pacman)
+pacman::p_load(tree, rpart, randomForest, ranger, rattle, pROC, partykit, ggplot2, glmnet,lda, data.table, ISLR, car, dplyr, tidyverse, stats, skimr)
+```
+
+## Data Preparation
+
+Read in the Data
+```{r}
+data.full <- read.csv('data/case.wsd.wide-predictors.csv')
+head(data.full)
+names(data.full)
+```
+
+merge with vaccination success index
+```{r}
+#read in
+new.data.with.VSI <- read.csv("data/VaccinationSucessIndexData-New.csv")
+yval <- new.data.with.VSI %>% dplyr::select("country", "VSI")
+data.full <- inner_join(data.full, yval,  by=("country"))
+skim(data.full)
+```
+
+We'll remove the variables that have a high missing rate, and then remove the countries that have NAs below that threshold
+```{r}
+data.90 <- data.full[, apply(data.full, 2, function(col)sum(is.na(col))/length(col)) < 0.10]
+data.complete <- na.omit(data.90)
+nrow(data.complete)
+```
+
+## Linear Regression
+
+We will now try some linear models. Here we will explore the relationship between measures capturing the quality of a nation's economy over the last reported 18 years and vaccination success. 
+
+Variables:
+* `ExportGoodsServices.GDP_avg`
+* `FinalConsumptionExpenditure.GDP_avg`
+* `GDP.Current_avg`
+* `GDP.PerCapita.Current_avg`
+* `ImportGoodsServices.GDP_avg`
+* `ConsumerPriceInflation_avg`
+
+
+```{r}
+
+linear.fit.1 <- lm(data = data.complete, formula = VSI ~ ExportGoodsServices.GDP_avg + FinalConsumptionExpenditure.GDP_avg + GDP.Current_avg + GDP.PerCapita.Current_avg +
+                     ImportGoodsServices.GDP_avg +
+                     ConsumerPriceInflation_avg)
+summary(linear.fit.1)
+
+```
+
+Fine tune the model, removing non-significant variables. 
+```{r}
+
+linear.fit.1.refined <- lm(data = data.complete, formula = VSI ~ GDP.PerCapita.Current_avg + ConsumerPriceInflation_avg)
+summary(linear.fit.1.refined)
+```
+
+The GDP per capita and consumer price inflation are significant as predictors of the Vaccination Success Index at the 0.05 level. This indicates that an increase in the average per-capita GDP of a nation, and decrease in the average consumer price inflation, over the last reported 18 years, correspond to an increase in the success of that country's vaccination campaign. 
+
+## Random Forest for Regression
+
+
+Let us tune the parameters mtry (number of variables to sample) and ntree (number of trees to use). 
+```{r}
+set.seed(1) # for reproducibility, we set the seed
+fit.1.rf <- randomForest(VSI~., data.complete, mtry=6, ntree=500)
+plot(fit.1.rf)
+```
+
+Based on out of bag error, it seems 100 trees is sufficient. Now, let's tune mtry. 
+
+```{r}
+error.p <- 1:150  
+for (p in 1:150)  
+{
+  rf.temp <- randomForest(VSI~., data.complete, mtry=p, ntree=100)
+  error.p[p] <- rf.temp$mse[100]  
+}
+plot(1:150, error.p, pch=16,
+     main = "Testing errors of mtry with 100 trees",
+     xlab="mtry",
+     ylab="OOB mse of mtry")
+lines(1:150, error.p)
+
+```
+
+It seems that an mtry between 50 and 70 is appropriate. Accordingly, we will select a final mtry of 60. 
+
+Now, let's develop the final model
+```{r}
+fit.final.rf <- randomForest(VSI~., data.complete, mtry=60, ntree=100)
+plot(fit.final.rf)
+```
+
+
+
+
+
+
+
