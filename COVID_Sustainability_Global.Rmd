@@ -29,7 +29,7 @@ if(!require("pacman")) install.packages("pacman")
 
 pacman::p_load(tidyverse, dplyr, ggplot2, ggthemes, data.table, lubridate,
                GGally, RColorBrewer, ggsci, plotROC, usmap,
-               plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car, keras, neuralnet, tensorflow)
+               plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car, keras, neuralnet, tensorflow, missForest)
 ```
 
 
@@ -387,7 +387,7 @@ vac_maxrate <- covid %>%
 ```
 
 ``` {r}
-# cases & deaths up until vaccines start
+# cases & deaths up until vaccines start USE THIS!
 covid_prevac <- covid %>%
   group_by(country) %>%
   drop_na(date.first.vac) %>%
@@ -399,17 +399,17 @@ covid_prevac <- covid %>%
 colnames(covid_prevac)[2:19] <- paste(colnames(covid_prevac)[2:19], "prevac", sep = "_") #add suffix
 
 
-# cases & deaths at 1 yr after date.first.vac
-covid_1yr <- covid %>%
-  group_by(country) %>%
-  drop_na(date.first.vac) %>%
-  subset(date == (date.first.vac %m+% months(12))) %>%
-  dplyr::select("country"| contains("case") | contains("death"))
-colnames(covid_1yr)[2:19] <- paste(colnames(covid_1yr)[2:19], "1yr", sep = "_") #add suffix
-#covid_1yr <- covid_1yr[, which(colMeans(!is.na(covid_1yr)) > 0.5)] #remove cols with NA > 50%
-#sum(is.na(covid_1yr$cumulative_total_cases))
+# # cases & deaths at 1 yr after date.first.vac
+# covid_1yr <- covid %>%
+#   group_by(country) %>%
+#   drop_na(date.first.vac) %>%
+#   subset(date == (date.first.vac %m+% months(12))) %>%
+#   dplyr::select("country"| contains("case") | contains("death"))
+# colnames(covid_1yr)[2:19] <- paste(colnames(covid_1yr)[2:19], "1yr", sep = "_") #add suffix
+# #covid_1yr <- covid_1yr[, which(colMeans(!is.na(covid_1yr)) > 0.5)] #remove cols with NA > 50%
+# #sum(is.na(covid_1yr$cumulative_total_cases))
 
-#peak rates up until vaccinations start
+#peak rates up until vaccinations start - USE THIS
 covid_maxrate <- covid %>%
   drop_na(date.first.vac) %>%
   subset(date < date.first.vac) %>% 
@@ -530,7 +530,7 @@ df <- inner_join(case.wsd.wide, yval,  by=("country"))
 n_unique(df$country)
 ```
 
-Subdividing our dataset into `data.train`(60%), `data.test` (20%), and `data.val` (20%) - QUESTION - ok to also drop Country here?
+Subdividing our dataset into `data.train`(60%), `data.test` (20%), and `data.val` (20%) DROP COUNTRY, CONTINENT & COUNTRY.CODE
 
 ```{r}
 # Split the data 
@@ -545,10 +545,10 @@ idx_train <- sample(N, n1)
 idx_no_train <- (which(! seq(1:N) %in% idx_train))
 idx_test <- sample(idx_no_train, n2)
 idx_val <- which(! idx_no_train %in% idx_test)
-data.train <- as.data.frame(df[idx_train, -1])
-data.test <- as.data.frame(df[idx_test, -1])
-data.val <- as.data.frame(df[idx_val, -1 ])
-data.train.test <- as.data.frame(df[-idx_val, -1]) #for methods that don't require separate test set
+data.train <- as.data.frame(df[idx_train,])
+data.test <- as.data.frame(df[idx_test,])
+data.val <- as.data.frame(df[idx_val,])
+data.train.test <- as.data.frame(df[-idx_val,]) #for methods that don't require separate test set
 ``` 
 
 Building a couple linear models:
@@ -611,18 +611,42 @@ Attempting neural nets:
 **may need to set dummy vars for categorical**
 
 Defining neural nets -   
+  + normalization
   + two layers with 8 neurons in each layer
   + Activation function is `Relu`
-  + Output layer is `Sigmoid`
+  + Output layer is `linear`
+  
+Resources used:
+https://www.tensorflow.org/tutorials/keras/regression
+https://tensorflow.rstudio.com/reference/keras/layer_batch_normalization/
+https://machinelearningmastery.com/how-to-choose-loss-functions-when-training-deep-learning-neural-networks/
+https://stackoverflow.com/questions/37232782/nan-loss-when-training-regression-network
+https://rstudio-pubs-static.s3.amazonaws.com/344055_0c737f77c0ef4e36b6865cb843a7bb4a.html
+https://keras.io/api/metrics/regression_metrics/
 
-Setting x and y data as matrixes
+Imputing & setting x and y data as matrixes
 ```{r}
-#may need to set dummy vars - just grabing numeric for now to test!
-data.train.test <- data.train.test %>% select_if(is.numeric)
+#skim(data.train.test)
+#need to impute over NAs, using missForest for now
+data.nn.train <- data.train.test %>% 
+  mutate(across(where(is_character),as_factor)) %>% 
+  dplyr::select(-c(Country.Code, country)) %>% #remove country
+  select_if(funs(!is.Date(.)))
+data.nn.trainimp <- missForest(data.nn.train, variablewise = TRUE)
+data.nn.trainimp$ximp
+data.nn.trainimp$OOBerror #high :(
+
+#select only cols with missForest OOB MSE below 25%
+good.predict <- which(data.nn.trainimp$OOBerror < 0.25) %>% unname()
+nn.trainimp <- data.nn.trainimp$ximp[, c(good.predict)]
+setdiff(names(data.nn.train), names(nn.trainimp)) #see what cols were lost
+# dim(nn.trainimp) #imputing gives us 108 cols to work with
+# dim(data.nn.train[ , colSums(is.na(data.nn.train)) == 0]) #as opposed to dropping all NA cols, which only gives us 67
+# dim(na.omit(data.nn.train)) #or dropping rows with NAs, which would mean only 17 countries
 
 ## training input/y: need to be matrix/vector
-data_xtrain <- data.train.test[, -192]   #dim(data3_xtrain), remove y
-data_ytrain <- data.train.test[, 192]   # find y
+data_xtrain <- nn.trainimp[, -99] %>% select_if(is.numeric)  #dim(data3_xtrain), remove y ~may need to set dummy vars - just grabbing numeric for now to test!
+data_ytrain <- nn.trainimp[, 99]   # find y
 data_xtrain <- as.matrix(data_xtrain) # make sure it it is a matrix
 data_ytrain <- as.matrix(data_ytrain) # make sure it it is a matrix
 
@@ -632,6 +656,7 @@ data_yval <- data.val[, 204]   # find y
 data_xval <- as.matrix(data_xval) # make sure it it is a matrix
 data_yval <- as.matrix(data_yval) # make sure it it is a matrix
 ```
+cumulative_total_deaths_last
 
 Build and compile model
 ```{r}
@@ -641,20 +666,28 @@ set_random_seed(10)
 #build model
 p <- dim(data_xtrain)[2] # number of input variables (columns)
 model <- keras_model_sequential() %>%
-  layer_batch_normalization(input_shape = c(p)) %>% #recommended
-  layer_dense(units = 8, activation = "relu") %>%
+  layer_batch_normalization(input_shape = c(p)) %>% #recommended, not certain it's correct
+  layer_dense(units = 12, activation = "relu") %>%
   # layer_dropout(0.25) %>% # drop 25% - https://stackoverflow.com/questions/37232782/nan-loss-when-training-regression-network
-  # layer_dense(units = 8, activation = "relu") %>%  
+  layer_dense(units = 12, activation = "relu") %>%  
   # layer_dropout(0.25) %>% # drop 25%
-  # layer 2 with 8 neurons
   layer_dense(units = 1, activation = "linear") # output = 1 unit for linear(?) regression
 print(model)
 
-#compile the Model (based on https://www.tensorflow.org/tutorials/keras/regression)
-model %>% compile(
-  optimizer = "adam",
-  loss = "mean_squared_error",
-)
+# #compile the Model (based on https://www.tensorflow.org/tutorials/keras/regression)
+# model %>% compile(
+#   optimizer = "adam",
+#   loss = "mean_squared_error",
+#   metrics = list("mean_squared_error"),
+# )
+
+#compile model (based on https://tensorflow.rstudio.com/tutorials/beginners/basic-ml/tutorial_basic_regression/)
+model %>%
+  compile(
+    loss = "mse",
+    optimizer = optimizer_rmsprop(),
+    metrics = c("accuracy")
+  )
 ```
 
 Fitting model
@@ -664,9 +697,9 @@ set_random_seed(10)
 fit.nn <- model %>% fit(
   data_xtrain,
   data_ytrain,
-  epochs = 20,
-  batch_size = 50,
-  validation_split = .15 # set 15% of the data_xtain, data_ytrain as the validation data
+  epochs = 100,
+  batch_size = 20,
+  validation_split = .15 # set 15% of the data_xtrain, data_ytrain as the validation data
 )
 
 plot(fit.nn)
