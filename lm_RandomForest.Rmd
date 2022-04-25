@@ -32,11 +32,14 @@ We'll remove the variables that have a high missing rate, and then remove the co
 data.90 <- data.full[, apply(data.full, 2, function(col)sum(is.na(col))/length(col)) < 0.10]
 data.complete <- na.omit(data.90)
 nrow(data.complete)
+
+data.complete <- data.complete %>%
+  dplyr::select(-country)
 ```
 
 ## Linear Regression
 
-We will now try some linear models. Here we will explore the relationship between measures capturing the quality of a nation's economy over the last reported 18 years and vaccination success. 
+We will now try some linear models. Here we will explore the relationship between measures capturing the quality of a nation's economy over the last reported 17 years and vaccination success. 
 
 Variables:
 * `ExportGoodsServices.GDP_avg`
@@ -61,12 +64,12 @@ Fine tune the model, removing non-significant variables.
 
 linear.fit.1.refined <- lm(data = data.complete, formula = VSI ~ GDP.PerCapita.Current_avg + ConsumerPriceInflation_avg)
 summary(linear.fit.1.refined)
+plot(linear.fit.1.refined, 1:2)
 ```
 
 The GDP per capita and consumer price inflation are significant as predictors of the Vaccination Success Index at the 0.05 level. This indicates that an increase in the average per-capita GDP of a nation, and decrease in the average consumer price inflation, over the last reported 18 years, correspond to an increase in the success of that country's vaccination campaign. 
 
 ## Random Forest for Regression
-
 
 Let us tune the parameters mtry (number of variables to sample) and ntree (number of trees to use). 
 ```{r}
