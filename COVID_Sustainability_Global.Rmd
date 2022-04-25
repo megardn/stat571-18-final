@@ -29,7 +29,7 @@ if(!require("pacman")) install.packages("pacman")
 
 pacman::p_load(tidyverse, dplyr, ggplot2, ggthemes, data.table, lubridate,
                GGally, RColorBrewer, ggsci, plotROC, usmap,
-               plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car)
+               plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car, corrplot)
 ```
 
 
@@ -373,6 +373,7 @@ vac_rate <- covid %>%
   group_by(country) %>%
   summarise(daily.vac.per.mil_6moavg = mean(daily_vaccinations_per_million))
 
+
 # max rate of vaccinations administration
 vac_maxrate <- covid %>%
   dplyr::select(country, date, daily_vaccinations_per_million, daily_vaccinations_raw, daily_vaccinations) %>% 
@@ -383,6 +384,7 @@ vac_maxrate <- covid %>%
   rename(daily.vac.raw_max = daily_vaccinations_raw,
          daily.vac_max = daily_vaccinations,
          daily.vac.per.mil_max = daily_vaccinations_per_million)
+  
 ```
 
 ``` {r}
@@ -455,11 +457,14 @@ vac.sum <- vac.dump %>% dplyr::select(
   days.to.start_rel, #days until a country reports starting to administer vaccines, with the 1st country to start vaccinating as a baseline
   days.to.10pct_fromstart, #days between starting vaccinations and administering to 10% of pop
   daily.vac.per.mil_6moavg, #mean daily vaccinations in the first 6 months of administering
-  people_vaccinated_per_hundred_last, #number of ppl vaccinated at last report (sometime in 2022)
+  people_vaccinated_per_hundred_last, #number of ppl vaccinated (at least once) at last report (sometime in 2022)
   daily.vac.per.mil_max, #max number of vaccinations reported in a single day
+  total_vaccinations_per_hundred_last,# number of vaccine doses at last report (sometime in 2022)
+  people_fully_vaccinated_per_hundred_last # number of people that received the full vaccine (typically 2 doses)
 )
 
 write.csv(vac.sum, "data/vaccination_summary.csv", row.names = FALSE)
+skim(vac.dump)
 ```
 
 
@@ -521,11 +526,13 @@ doses administered at march 2022 (absolute counts and binned)
 
 ## Modeling
 
-Predicting VSI scores (from `data/VaccinationSucessIndexData-New.csv`) using `case.wsd.wide`, which includes all WSD summary outputs and COVID case/death info up until vaccination started in each country.
+
+In this section, we are using socioeconomic factors from `case.wsd.wide` to predict Vaccination Success Index (VSI). Note that VSI corresponds the inverse signed PC1 scores (from `data/VaccinationSucessIndexData-New.csv`) using and thus indicates how well a country did at getting people vaccinated, i.e. a positive score indicates a good vaccination performance, while a negative score indicates a poor vaccination performance. 
 
 ```{r}
 #read in
 new.data.with.VSI <- read.csv("data/VaccinationSucessIndexData-New.csv")
+
 
 #adding in PC1
 yval <- new.data.with.VSI %>% dplyr::select("country", "VSI")
@@ -536,6 +543,431 @@ n_unique(df$country)
 
 
 Subdividing our dataset of 108 countries into `data.train`(60%), `data.test` (20%), and `data.val` (20%) 
+```{r}
+
+# numerical summary
+skim(new.data.with.VSI)
+
+# plot sorted VSI scores
+new.data.with.VSI %>%
+  ggplot(aes(x = reorder(country, VSI), 
+               y = VSI, fill = country)) +
+    geom_bar(show.legend = FALSE, stat = "identity") +
+    xlab("Country") +
+    ylab("VSI") + 
+    ggtitle("Vaccination Success Index score") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 60, hjust=1))
+
+ggplot(new.data.with.VSI, aes(x = reorder(country, -VSI), y = VSI, fill = country)) + 
+  geom_bar(stat = "identity")
+
+```
+
+We can see that Somalia appears to be the country with the lowest VSI, and Cuba appears to have the highest VSI. 
+After the merge of VSI with available world sustainability and cases data (`wsd.covid.all`), we end up with 99 countries for whom we have both information.
+
+Let's now see how socioeconomic factors may be associated with VSI. To develop the most accurate prediction, we will compare a range of methods going from supervised to unsupervised:
+
+* Linear models
+* LASSO model selection
+* random forests
+* neural networks?
+
+### Linear models
+
+First, we try a few simple linear models by selecting variables based on domain knowledge. We try the same models on wsd data from 2018, wsd over the last 3 years, wsd average and wsd change between 2001 and 2018 to see which data best explains VSI. 
+
+
+#### WSD 2018
+
+```{r fig.width=10, fig.height=10}
+
+# latest wsd data (from 2018)
+# merge VSI to the wsd data
+wsd.2018.vsi <- inner_join(new.data.with.VSI[c("country", "VSI")], wsd.2018, by = "country")
+nrow(wsd.2018.vsi) # countries left after merge
+
+# create correlation plot to see whether some variables are highly correlated (not tolerated by lm)
+wsd.2018.vsi %>% 
+  select(-VSI) %>% # remove outcome variable as we want to highlight corrs among predictors only
+  select_if(., is.numeric) %>%
+  cor(.) %>%
+  # corrplot(method = 'color', order = 'alphabet', type = 'lower', diag = FALSE)
+  corrplot(method = "color", 
+           type = "upper", order = "hclust", 
+           addCoef.col = "black", # Add coefficient of correlation
+           tl.col="black", tl.srt = 45, #Text label color and rotation
+           # hide correlation coefficient on the principal diagonal
+           diag = FALSE 
+           )
+# find names of highly correlated variables
+correlations <- wsd.2018.vsi %>% 
+  select(-VSI) %>%
+  select_if(., is.numeric) %>%
+  cor(.)
+correlations[correlations < 0.8 | correlations ==1] <- ""
+correlations
+
+# some variables are perfectly or almost perfectly correlated. We will trim variables that have correlations over 0.8 to avoid multi-collinearity. 
+wsd.2018.vsi <- wsd.2018.vsi %>%
+  select(-c(country, Country.Code, Continent, WorldRegion_2018, # also dropping country/continent information 
+            Electricity.Access_2018, # LifeExpenctancy_2018 corr 0.83
+            TotalNaturalResources.GDP_2018, # SavingNaturalResourceDepletion_2018 corr 0.86
+            ImportGoodsServices.GDP_2018, # ExportGoodsServices.GDP_2018 corr 0.92
+            Trade.GDP_2018, # ExportGoodsServices.GDP_2018 0.98
+            GrossNationalExpenditure.GDP_2018, # FinalConsumptionExpenditure.GDP_2018 corr 0.88
+            RuralPopulation.Prop_2018 # UrbanPopulation.Prop_2018 corr 1
+            ))
+
+
+# # trying a few models with variables that should make sense...
+# internet use
+lm.2018.1 <- lm(VSI ~ IndividualsUsingInternet_2018, data = wsd.2018.vsi)
+summary(lm.2018.1)
+# internet use does explain VSI when life expectancy and other vars are not there
+
+# regime type
+lm.2018.2 <- lm(VSI ~ RegimeType_2018, data = wsd.2018.vsi)
+summary(lm.2018.2)
+# regime type also significantly impacts VSI when used alone
+
+# urban population percentage
+lm.2018.3 <- lm(VSI ~ UrbanPopulation.Prop_2018, data = wsd.2018.vsi)
+summary(lm.2018.3)
+# urban population also significantly impacts VSI when used alone
+
+# years of compulsory education
+lm.2018.4 <- lm(VSI ~ CompulsoryEducationDurationYears_2018, data = wsd.2018.vsi)
+summary(lm.2018.4)
+# compulsory education also significantly impacts VSI when used alone
+
+# GDP per capita
+lm.2018.5 <- lm(VSI ~ GDP.PerCapita.Current_2018, data = wsd.2018.vsi)
+summary(lm.2018.5)
+# GDP per capita also significantly impacts VSI when used alone
+
+# Life expectancy
+lm.2018.6 <- lm(VSI ~ LifeExpenctancy_2018, data = wsd.2018.vsi)
+summary(lm.2018.6)
+# Life expectancy also significantly impacts VSI when used alone
+
+# model with all these variables
+lm.2018.7 <- lm(VSI ~ LifeExpenctancy_2018 + 
+                  UrbanPopulation.Prop_2018 + 
+                  RegimeType_2018 + 
+                  CompulsoryEducationDurationYears_2018 + 
+                  GDP.PerCapita.Current_2018 +
+                  IndividualsUsingInternet_2018, 
+               data = wsd.2018.vsi)
+summary(lm.2018.7)
+# only Life Expectancy is useful here, It seems like this variable may be sufficient at predicting VSI. 
+
+# fit model (without any country/continent info)
+lm.2018.full <- lm(VSI ~ ., data = wsd.2018.vsi)
+summary(lm.2018.full)
+
+# only LifeExpenctancy_2018 shows a significant effect on VSI. Trying a reduced model with only this variable
+lm.2018.red <- lm(VSI ~ LifeExpenctancy_2018, data = wsd.2018.vsi)
+summary(lm.2018.red)
+anova(lm.2018.full, lm.2018.red)
+
+```
+
+There is no evidence to suggest that the full model better explains the data than the reduced model. It seems like life expectancy alone is sufficient for explaining VSI. 
+
+#### 3 year average
+
+```{r fig.width=10, fig.height=10}
+# wsd average over the past 3 years
+# merge VSI to the wsd data
+wsd.3yr.vsi <- inner_join(new.data.with.VSI[c("country", "VSI")], wsd.3yr, by = "country")
+nrow(wsd.3yr.vsi) # countries left after merge
+
+# create correlation plot to see whether some variables are highly correlated (not tolerated by lm)
+wsd.3yr.vsi %>% 
+  select(-VSI) %>% # remove outcome variable as we want to highlight corrs among predictors only
+  select_if(., is.numeric) %>%
+  cor(.) %>%
+  # corrplot(method = 'color', order = 'alphabet', type = 'lower', diag = FALSE)
+  corrplot(method = "color", 
+           type = "upper", order = "hclust", 
+           addCoef.col = "black", # Add coefficient of correlation
+           tl.col="black", tl.srt = 45, #Text label color and rotation
+           # hide correlation coefficient on the principal diagonal
+           diag = FALSE 
+           )
+# find names of highly correlated variables
+correlations <- wsd.3yr.vsi %>% 
+  select(-VSI) %>%
+  select_if(., is.numeric) %>%
+  cor(.)
+correlations[correlations < 0.8 | correlations ==1] <- ""
+correlations
+
+# some variables (same as 2018) are perfectly or almost perfectly correlated. We will trim variables that have correlations over 0.8 to avoid multi-collinearity. 
+wsd.3yr.vsi <- wsd.3yr.vsi %>%
+  select(-c(country, WorldRegion_3yr, # also dropping country/continent information 
+            Electricity.Access_3yr, # LifeExpenctancy_3yr corr 0.83
+            TotalNaturalResources.GDP_3yr, # SavingNaturalResourceDepletion_3yr corr 0.86
+            ImportGoodsServices.GDP_3yr, # ExportGoodsServices.GDP_23yr corr 0.92
+            Trade.GDP_3yr, # ExportGoodsServices.GDP_3yr 0.98
+            GrossNationalExpenditure.GDP_3yr, # FinalConsumptionExpenditure.GDP_3yr corr 0.88
+            RuralPopulation.Prop_3yr # UrbanPopulation.Prop_2018 corr 1
+            ))
+
+# # trying a few models with variables that should make sense...
+# internet use
+lm.3yr.1 <- lm(VSI ~ IndividualsUsingInternet_3yr, data = wsd.3yr.vsi)
+summary(lm.3yr.1)
+# internet use does explain VSI when life expectancy and other vars are not there
+
+# regime type
+lm.3yr.2 <- lm(VSI ~ RegimeType_3yr, data = wsd.3yr.vsi)
+summary(lm.3yr.2)
+# regime type also significantly impacts VSI when used alone
+
+# urban population percentage
+lm.3yr.3 <- lm(VSI ~ UrbanPopulation.Prop_3yr, data = wsd.3yr.vsi)
+summary(lm.3yr.3)
+# urban population also significantly impacts VSI when used alone
+
+# years of compulsory education
+lm.3yr.4 <- lm(VSI ~ CompulsoryEducationDurationYears_3yr, data = wsd.3yr.vsi)
+summary(lm.3yr.4)
+# compulsory education also significantly impacts VSI when used alone
+
+# GDP per capita
+lm.3yr.5 <- lm(VSI ~ GDP.PerCapita.Current_3yr, data = wsd.3yr.vsi)
+summary(lm.3yr.5)
+# GDP per capita also significantly impacts VSI when used alone
+
+# Life expectancy
+lm.3yr.6 <- lm(VSI ~ LifeExpenctancy_3yr, data = wsd.3yr.vsi)
+summary(lm.3yr.6)
+# Life expectancy also significantly impacts VSI when used alone
+
+# model with all these variables
+lm.3yr.7 <- lm(VSI ~ LifeExpenctancy_3yr + 
+                  UrbanPopulation.Prop_3yr + 
+                  RegimeType_3yr + 
+                  CompulsoryEducationDurationYears_3yr + 
+                  GDP.PerCapita.Current_3yr +
+                  IndividualsUsingInternet_3yr, 
+               data = wsd.3yr.vsi)
+summary(lm.3yr.7)
+# only Life Expectancy is useful here, It seems like this variable may be sufficient at predicting VSI. 
+
+# fit model (without any country/continent info)
+lm.3yr.full <- lm(VSI ~ ., data = wsd.3yr.vsi)
+summary(lm.3yr.full)
+
+# only LifeExpenctancy_2018 shows a significant effect on VSI. Trying a reduced model with only this variable
+lm.3yr.red <- lm(VSI ~ LifeExpenctancy_3yr, data = wsd.3yr.vsi)
+summary(lm.3yr.red)
+anova(lm.3yr.full, lm.3yr.red)
+
+
+```
+Same conclusion here: life expectancy is the only variable that significantly impacts VSI. 
+
+#### 17 year average
+
+```{r fig.width=10, fig.height=10}
+# wsd average over all years (2001-2018)
+# merge VSI to the wsd data
+wsd.avg.vsi <- inner_join(new.data.with.VSI[c("country", "VSI")], wsd.avg, by = "country")
+nrow(wsd.avg.vsi) # countries left after merge
+
+# create correlation plot to see whether some variables are highly correlated (not tolerated by lm)
+wsd.avg.vsi %>% 
+  # select(-VSI) %>% # remove outcome variable as we want to highlight corrs among predictors only
+  select_if(., is.numeric) %>%
+  cor(.) %>%
+  # corrplot(method = 'color', order = 'alphabet', type = 'lower', diag = FALSE)
+  corrplot(method = "color", 
+           type = "upper", order = "hclust", 
+           addCoef.col = "black", # Add coefficient of correlation
+           tl.col="black", tl.srt = 45, #Text label color and rotation
+           # hide correlation coefficient on the principal diagonal
+           diag = FALSE 
+           )
+# find names of highly correlated variables
+correlations <- wsd.avg.vsi %>% 
+  select(-VSI) %>%
+  select_if(., is.numeric) %>%
+  cor(.)
+correlations[correlations < 0.8 | correlations ==1] <- ""
+correlations
+
+# some variables (same as 2018 + 1 variable, GDP per capita) are perfectly or almost perfectly correlated. We will trim variables that have correlations over 0.8 to avoid multi-collinearity. 
+wsd.avg.vsi <- wsd.avg.vsi %>%
+  select(-c(country, WorldRegion_avg, # also dropping country/continent information 
+            Electricity.Access_avg, # LifeExpenctancy_avg corr 0.83
+            TotalNaturalResources.GDP_avg, # SavingNaturalResourceDepletion_avg corr 0.86
+            ImportGoodsServices.GDP_avg, # ExportGoodsServices.GDP_2avg corr 0.92
+            Trade.GDP_avg, # ExportGoodsServices.GDP_avg 0.98
+            GrossNationalExpenditure.GDP_avg, # FinalConsumptionExpenditure.GDP_avg corr 0.88
+            RuralPopulation.Prop_avg, # UrbanPopulation.Prop_2018 corr 1
+            GDP.PerCapita.Current_avg # IndividualsUsingInternet_avg corr 0.84
+            ))
+
+# # trying a few models with variables that should make sense...
+# internet use
+lm.avg.1 <- lm(VSI ~ IndividualsUsingInternet_avg, data = wsd.avg.vsi)
+summary(lm.avg.1)
+# internet use does explain VSI when life expectancy and other vars are not there
+
+# regime type
+lm.avg.2 <- lm(VSI ~ RegimeType_avg, data = wsd.avg.vsi)
+summary(lm.avg.2)
+# regime type also significantly impacts VSI when used alone
+
+# urban population percentage
+lm.avg.3 <- lm(VSI ~ UrbanPopulation.Prop_avg, data = wsd.avg.vsi)
+summary(lm.avg.3)
+# urban population also significantly impacts VSI when used alone
+
+# years of compulsory education
+lm.avg.4 <- lm(VSI ~ CompulsoryEducationDurationYears_avg, data = wsd.avg.vsi)
+summary(lm.avg.4)
+# compulsory education also significantly impacts VSI when used alone
+
+# GDP 
+lm.avg.5 <- lm(VSI ~ GDP.Current_avg, data = wsd.avg.vsi)
+summary(lm.avg.5)
+# GDP also significantly impacts VSI when used alone
+
+# Life expectancy
+lm.avg.6 <- lm(VSI ~ LifeExpenctancy_avg, data = wsd.avg.vsi)
+summary(lm.avg.6)
+# Life expectancy also significantly impacts VSI when used alone
+
+# model with all these variables
+lm.avg.7 <- lm(VSI ~ LifeExpenctancy_avg + 
+                  UrbanPopulation.Prop_avg + 
+                  RegimeType_avg + 
+                  CompulsoryEducationDurationYears_avg + 
+                  GDP.Current_avg +
+                  IndividualsUsingInternet_avg, 
+               data = wsd.avg.vsi)
+summary(lm.avg.7)
+# only Life Expectancy is useful here, It seems like this variable may be sufficient at predicting VSI. 
+
+# fit model (without any country/continent info)
+lm.avg.full <- lm(VSI ~ ., data = wsd.avg.vsi)
+summary(lm.avg.full)
+
+# only LifeExpenctancy_2018 shows a significant effect on VSI. Trying a reduced model with only this variable
+lm.avg.red <- lm(VSI ~ LifeExpenctancy_avg + 
+                   RegimeType_avg + 
+                   Adj.SavingNaturalResourceDepletion_avg +
+                   Adj.SavingNetForestDepletion_avg , data = wsd.avg.vsi)
+
+# let's further reduce it to keep only significant variables
+lm.avg.red <- lm(VSI ~ LifeExpenctancy_avg + RegimeType_avg , data = wsd.avg.vsi)
+summary(lm.avg.red)
+anova(lm.avg.full, lm.avg.red)
+
+```
+
+Interesting! In the average over ~20 years (2001-2018), regime type (electoral autocracy, electoral democracy), SavingNaturalResourceDepletion_avg,  SavingNetForestDepletion_avg and LifeExpenctancy_avg now have become significant. The reduced model suggests that out of these, LifeExpenctancy_avg and Regime_Type are sufficient. 
+
+####17 year change
+
+```{r fig.width=10, fig.height=10}
+# wsd change between 2001 and 2018
+# merge VSI to the wsd data
+wsd.diff.vsi <- inner_join(new.data.with.VSI[c("country", "VSI")], wsd.change, by = "country")
+nrow(wsd.diff.vsi) # countries left after merge
+
+# create correlation plot to see whether some variables are highly correlated (not tolerated by lm)
+wsd.change.vsi %>% 
+  select(-VSI) %>% # remove outcome variable as we want to highlight corrs among predictors only
+  select_if(., is.numeric) %>%
+  cor(.) %>%
+  # corrplot(method = 'color', order = 'alphabet', type = 'lower', diag = FALSE)
+  corrplot(method = "color", 
+           type = "upper", order = "hclust", 
+           addCoef.col = "black", # Add coefficient of correlation
+           tl.col="black", tl.srt = 45, #Text label color and rotation
+           # hide correlation coefficient on the principal diagonal
+           diag = FALSE 
+           )
+# find names of highly correlated variables
+correlations <- wsd.change.vsi %>% 
+  select(-VSI) %>%
+  select_if(., is.numeric) %>%
+  cor(.)
+correlations[correlations < 0.8 | correlations ==1] <- ""
+correlations
+
+# some variables (same as 2018 + 1 variable, GDP per capita) are perfectly or almost perfectly correlated. We will trim variables that have correlations over 0.8 to avoid multi-collinearity. 
+wsd.diff.vsi <- wsd.diff.vsi %>%
+  select(-c(country, # also dropping country/continent information 
+            Electricity.Access_diff, # LifeExpenctancy_diff corr 0.83
+            TotalNaturalResources.GDP_rel.diff, # SavingNaturalResourceDepletion_diff corr 0.86
+            ImportGoodsServices.GDP_rel.diff, # ExportGoodsServices.GDP_2diff corr 0.92
+            Trade.GDP_rel.diff, # ExportGoodsServices.GDP_diff 0.98
+            GrossNationalExpenditure.GDP_diff, # FinalConsumptionExpenditure.GDP_diff corr 0.88
+            RuralPopulation.Prop_diff, # UrbanPopulation.Prop_2018 corr 1
+            GDP.PerCapita.Current_diff, # IndividualsUsingInternet_diff corr 0.84
+            GDP.Current_rel.diff, # GDP.PerCapita.Current_rel.diff corr 0.96
+            CompulsoryEducationDurationYears_rel.diff, # CompulsoryEducationDurationYears_diff corr 0.99
+            ExportGoodsServices.GDP_rel.diff, # ExportGoodsServices.GDP_diff corr 0.84
+            FinalConsumptionExpenditure.GDP_rel.diff, # FinalConsumptionExpenditure.GDP_diff corr 0.94
+            Govt.FinalConsumptionExpenditure.GDP_rel.diff, # Govt.FinalConsumptionExpenditure.GDP_diff 0.95
+            GrossNationalExpenditure.GDP_rel.diff, # GrossNationalExpenditure.GDP_diff corr 0.98
+            WomenInBusinessLawIndex_rel.diff, # WomenInBusinessLawIndex_diff corr 0.9
+            ))
+
+# # trying a few models with variables that should make sense...
+# internet use
+lm.diff.1 <- lm(VSI ~ IndividualsUsingInternet_diff, data = wsd.diff.vsi)
+summary(lm.diff.1)
+# internet use does not explain VSI 
+
+# regime type
+lm.diff.2 <- lm(VSI ~ RegimeType_diff, data = wsd.diff.vsi)
+summary(lm.diff.2)
+# regime type does not impact VSI when used alone
+
+# urban population percentage
+lm.diff.3 <- lm(VSI ~ UrbanPopulation.Prop_diff, data = wsd.diff.vsi)
+summary(lm.diff.3)
+# urban population does not impact VSI when used alone
+
+# years of compulsory education
+lm.diff.4 <- lm(VSI ~ CompulsoryEducationDurationYears_diff, data = wsd.diff.vsi)
+summary(lm.diff.4)
+# compulsory education does not VSI when used alone
+
+# GDP 
+lm.diff.5 <- lm(VSI ~ GDP.Current_diff, data = wsd.diff.vsi)
+summary(lm.diff.5)
+# GDP does not impact VSI when used alone
+
+# Life expectancy
+lm.diff.6 <- lm(VSI ~ LifeExpenctancy_diff, data = wsd.diff.vsi)
+summary(lm.diff.6)
+# Life expectancy does not impact VSI when used alone
+
+# model with all these variables
+lm.diff.7 <- lm(VSI ~ LifeExpenctancy_diff + 
+                  UrbanPopulation.Prop_diff + 
+                  RegimeType_diff + 
+                  CompulsoryEducationDurationYears_diff + 
+                  GDP.Current_diff +
+                  IndividualsUsingInternet_diff, 
+               data = wsd.diff.vsi)
+summary(lm.diff.7)
+# only Life Expectancy is useful here, It seems like this variable may be sufficient at predicting VSI. 
+
+# fit model (without any country/continent info)
+# lm.diff.full <- lm(VSI ~ ., data = wsd.diff.vsi) # coefficients not defined due to singularities. Outputs NAs
+# summary(lm.diff.full)
+```
+
 
 ```{r}
 # Split the data 
@@ -557,7 +989,7 @@ data.train <- as.data.frame(df.pred[idx_train,])
 data.test <- as.data.frame(df.pred[idx_test,])
 data.val <- as.data.frame(df.pred[idx_val,])
 data.train.test <- as.data.frame(df.pred[-idx_val,]) #for methods that don't require separate test set
-``` 
+```
 
 Here's code to subdivide the train/test dfs based on what type of WSD predictors they include (i.e. so you can easily train a model only on the WSD 17-yr averages, plus static measures and covid cases/deaths). We should also pair down on the covid case/death variables in here!
 
@@ -586,5 +1018,54 @@ data.test_diff <- data.test %>% dplyr::select(-c(contains("_2018") | contains("_
 data.val_diff <- data.val %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
 data.train.test_diff <- data.train.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
 ```
+
+The 17 year change variables seem overall less useful in predicting VSI. 
+
+### LASSO model selection
+
+Let's now try a slightly more data-driven approach, i.e. using LASSO to select the most relevant variables. Using the `wsd.avg.vsi` 17 year average dataset.
+Could also potentially use `wsd.sum.wide` here that has all 4 types of variables (2018, 3y average, 17y average, 17y difference), but that would mean dropping some variables first as LASSO doesn't like NAs. 
+
+```{r}
+
+# remove all rows containing NAs (LASSO does not work without this step) - no NAs here it seems
+wsd.avg.vsi.sub <- na.omit(wsd.avg.vsi)
+
+# create matrices to feed into gmnet
+Y <- as.matrix(wsd.avg.vsi.sub[, 1]) # extract Y (VSI)
+X <- model.matrix(VSI~., data = wsd.avg.vsi.sub)[, -1] # remove the first (interecept) column with only 1s
+
+# to control the randomness in K folds 
+set.seed(10)  
+
+# run LASSO
+lasso.avg <- cv.glmnet(X, Y, alpha = 1, nfolds = 10, intercept = TRUE)  
+
+# plot LASSO results
+plot(lasso.avg)
+
+lasso.avg$lambda.1se # use lambda.1se to select the smaller model
+coef.1se <- coef(lasso.avg, s = "lambda.1se") # get coefficients
+coef.1se <- coef.1se[which(coef.1se != 0),] # show variables with non-zero coefficients
+
+# output variable names
+coef.1se <- rownames(as.matrix(coef.1se))[-1] 
+coef.1se
+
+# output lm based on LASSO
+coef.1se <- coef(lasso.avg, s="lambda.1se")  #s=c("lambda.1se","lambda.min") or lambda value
+coef.1se <- coef.1se[which(coef.1se != 0),]   # get the non=zero coefficients
+var.1se <- rownames(as.matrix(coef.1se))[-1] # output the variable names without intercept
+var.1se <- var.1se[-grep("RegimeType_avg", var.1se)] # remove the state levels
+wsd.avg.vsi.lasso <-  wsd.avg.vsi.sub %>%
+  select(c("RegimeType_avg", "VSI", var.1se)) # get a subset with response and LASSO output
+
+# run relaxed LASSO
+fit.1se.lm <- lm(VSI~., data = wsd.avg.vsi.lasso) 
+summary(fit.1se.lm) 
+
+```
+
+LASSO results using the `wsd.avg.vsi` suggest the same variables found with linear models. 
 
 
