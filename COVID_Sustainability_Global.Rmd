@@ -56,11 +56,13 @@ covid.country <- levels(covid$country)
 
 covid$country <- recode_factor(covid$country, "UK"="United Kingdom", "Gambia"="Gambia, The", "Laos"="Lao PDR", "Egypt"="Egypt, Arab Rep.", "South Korea"="Korea, Rep.", "USA"="United States", "Russia"="Russian Federation", "Venezuela"="Venezuela, RB", "Democratic Republic Of The Congo"="DRC")
 wsd$country <- recode_factor(wsd$country,  "Iran, Islamic Rep."="Iran", "Bosnia and Herzegovina"="Bosnia And Herzegovina", "Cote d'Ivoire"="Cote D Ivoire", "Guinea-Bissau"="Guinea Bissau", "Kyrgyz Republic"="Kyrgyzstan", "North Macedonia"="Macedonia", "Eswatini"="Swaziland", "Vietnam"="Viet Nam", "Timor-Leste"="Timor Leste", "Slovak Republic"="Slovakia", "Congo, Rep."="Congo", "Congo, Dem. Rep."="DRC")
+
+
 ```
 
 Before attempting to merge, I'll parse down the dataframes so we can hopefully we can mix and match as needed to get what we need for our final analyses.
 
-## WSD Summary Vales
+# WSD Summary Values
 
 To start, I'll make a wide df the WSD data into the COVID dataset containing: the latest (2018) data; average of each parameter over time (2001 to 2018); the average of the last 3 years of data (2016-2018 for most countries); change in each parameter over time (2001-2018). Also made one for latest date for each country since 32 are missing 2018 data, not sure which we want to use!
 
@@ -232,7 +234,7 @@ wsd.sum.long <- wsd.sum.wide %>%
 head(wsd.sum.wide)
 ```
 
-## COVID Summary Values
+# COVID Summary Values
 
 I'll attempt to make the dataframe smaller and more mergable by filtering down into summary variables, similar to WSD. Some possibilities of things we could compare between countries:
 - Date vaccinations start
@@ -488,7 +490,7 @@ n_unique(covid.all$country)
 ```
 
 
-## Merge! Merge! Merge!
+# Merge! Merge! Merge!
 
 ``` {r}
 #merging ALL WSD predictors with cases, deaths & maxrate data for big, data-driven models!
@@ -520,29 +522,34 @@ days from vaccine access to 50% ppl
 % ppl vaccinated at march 2022 (absolute counts and binned)
 doses administered at march 2022 (absolute counts and binned)
 
-## Computing Vaccination Status Index
+# PCA: Vaccination Status Index
 
-**add Joelle's PCA here**
+In this section, we use selected vaccination variables from `vaccination_summary.csv` to see if we can come up with a good PC1 component that can capture moste of the variance in vaccination data. 
 
-## Modeling
+``` {r}
+vax.summary.new <- read.csv('data/vaccination_summary.csv')
+vax.summary.new <- na.omit(vax.summary.new)
+nrow(vax.summary.new)
+vax.pca3 <- prcomp(x = vax.summary.new[,-1], scale. = TRUE, center = TRUE)
+vax.pca3$rotation
+summary(vax.pca3) # adding 2 more vars brings the proportion of variance of PC1 from 67 to 73%, so keeping those in here
+plot(summary(vax.pca3)$importance[2, ],  # PVE
+     ylab="PVE",
+     xlab="Number of PC's",
+     pch = 16, 
+     main="Scree Plot of PVE for Vaccination variables")
+# Following the elbow rule, the first PC1 clearly explains a sufficient amount of variance. We will thus keep the first PC. 
 
+new.data.with.VSI <- vax.summary.new # copy the data
+new.data.with.VSI$VSI <- -vax.pca3$x[,1] # append the VSI (inverse signed PC1 scores), where a positive nb means a country was good at getting people vaccinated
 
-In this section, we are using socioeconomic factors from `case.wsd.wide` to predict Vaccination Success Index (VSI). Note that VSI corresponds the inverse signed PC1 scores (from `data/VaccinationSucessIndexData-New.csv`) using and thus indicates how well a country did at getting people vaccinated, i.e. a positive score indicates a good vaccination performance, while a negative score indicates a poor vaccination performance. 
-
-```{r}
-#read in
-new.data.with.VSI <- read.csv("data/VaccinationSucessIndexData-New.csv")
-
-
-#adding in PC1
-yval <- new.data.with.VSI %>% dplyr::select("country", "VSI")
-df <- inner_join(case.wsd.wide, yval,  by=("country"))
-#names(df)
-n_unique(df$country)
+write.csv(new.data.with.VSI, "data/VaccinationSucessIndexData-New.csv", row.names = FALSE)
 ```
 
+PC1 explains 73% of the variance and is therefore an excellent index indicating how well a country did at vaccinating their population. We are calling it the "Vaccination Success Index", i.e. `VSI`. 
 
-Subdividing our dataset of 108 countries into `data.train`(60%), `data.test` (20%), and `data.val` (20%) 
+Let's see how the VSI loadings are distributed across countries: 
+
 ```{r}
 
 # numerical summary
@@ -565,21 +572,270 @@ ggplot(new.data.with.VSI, aes(x = reorder(country, -VSI), y = VSI, fill = countr
 ```
 
 We can see that Somalia appears to be the country with the lowest VSI, and Cuba appears to have the highest VSI. 
+
+Let's now merge the VSI score with our cases and world sustainability dataset. 
+
+```{r}
+
+#adding in PC1
+yval <- new.data.with.VSI %>% dplyr::select("country", "VSI")
+df <- inner_join(case.wsd.wide, yval,  by = ("country")) # ending up with 99 countries
+#names(df)
+n_unique(df$country)
+
+```
+
 After the merge of VSI with available world sustainability and cases data (`wsd.covid.all`), we end up with 99 countries for whom we have both information.
 
-Let's now see how socioeconomic factors may be associated with VSI. To develop the most accurate prediction, we will compare a range of methods going from supervised to unsupervised:
+
+# Modeling
+
+
+In this section, we are using socioeconomic factors from `case.wsd.wide` to predict Vaccination Success Index (VSI). Note that VSI corresponds the inverse signed PC1 scores (from `data/VaccinationSucessIndexData-New.csv`) using and thus indicates how well a country did at getting people vaccinated, i.e. a positive score indicates a good vaccination performance, while a negative score indicates a poor vaccination performance. 
+
+## Data splitting
+
+Subdividing our dataset of 99 countries into `data.train`(60%), `data.test` (20%), and `data.val` (20%) 
+```{r}
+# Split the data 
+N <- length(df$country)
+n1 <- floor(.6*N)
+n2 <- floor(.2*N)
+
+#dropping country, continent and country.code 
+df.pred <- df %>% dplyr::select(-c(country, Continent, Country.Code))
+  
+set.seed(10)
+
+# Split data to three portions of .6, .2 and .2 of data size N
+idx_train <- sample(N, n1)
+idx_no_train <- (which(! seq(1:N) %in% idx_train))
+idx_test <- sample(idx_no_train, n2)
+idx_val <- which(! idx_no_train %in% idx_test)
+data.train <- as.data.frame(df.pred[idx_train,])
+data.test <- as.data.frame(df.pred[idx_test,])
+data.val <- as.data.frame(df.pred[idx_val,])
+data.train.test <- as.data.frame(df.pred[-idx_val,]) #for methods that don't require separate test set
+```
+
+Here's code to subdivide the train/test dfs based on what type of WSD predictors they include (i.e. so you can easily train a model only on the WSD 17-yr averages, plus static measures and covid cases/deaths). We should also pair down on the covid case/death variables in here!
+
+```{r}
+# WSD 2018
+data.train_2018 <- data.train %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+data.test_2018 <- data.test %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+data.val_2018 <- data.val %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+data.train.test_2018 <- data.train.test %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+
+# 3 year average
+data.train_3yr <- data.train %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+data.test_3yr <- data.test %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+data.val_3yr <- data.val %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+data.train.test_3yr <- data.train.test %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+
+# 17 year average
+data.train_avg <- data.train %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
+data.test_avg <- data.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
+data.val_avg <- data.val %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
+data.train.test_avg <- data.train.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
+
+#17 year change
+data.train_diff <- data.train %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
+data.test_diff <- data.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
+data.val_diff <- data.val %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
+data.train.test_diff <- data.train.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
+```
+
+Let's now see how various socioeconomic, sustainability and political factors may be associated with VSI. To develop the most accurate prediction, we will compare a range of methods going from supervised to unsupervised:
 
 * Linear models
 * LASSO model selection
 * random forests
 * neural networks?
 
-### Linear models
 
-First, we try a few simple linear models by selecting variables based on domain knowledge. We try the same models on wsd data from 2018, wsd over the last 3 years, wsd average and wsd change between 2001 and 2018 to see which data best explains VSI. 
+## Linear models
+
+A number of variables in our dataset appear highly correlated. This is due to several reasons:  
+
+* some variables already initially present in the world sustainability dataset (`WSD`) were highly correlated (for example, the proportion of Urban and Rural population variables) 
+* the creation of different summary measures over distinct time spans - e.g., last 2018 data, 2015-2018 average, 2001-2018 average, 2001-2018 change) also led to a number of variables that may contain very similar information. 
+
+To address this, we propose two different approaches: 
+
+* In the first approach, we are creating several linear models by selecting variables based on domain knowledge. Each model is focused on specific themes that may be of importance for predicting a country's `VSI` score. The following themes will be covered: 
+  + Economic factors
+  + "COVID burden" factors, i.e. how heavily a country suffered in terms of number of cases and deaths prior to vaccination start
+  + Political and country development factors
+  + Full model: we combine the most relevant factors into a comprehensive model
+  
+* In the second approach, we are running more inclusive models on distinct `WSD` summary measures (2018 data, 3 year average data, etc.) to determine which summary measures may be most informative in predicting `VSI`. 
 
 
-#### WSD 2018
+### Thematic linear models
+
+#### Economic factors
+
+Using domain knowledge, we explore the relationship between measures capturing the quality of a nation's economy over the last reported 17 years and vaccination success. 
+
+Selected variables:
+
+* `ExportGoodsServices.GDP_avg`
+* `FinalConsumptionExpenditure.GDP_avg`
+* `GDP.Current_avg`
+* `GDP.PerCapita.Current_avg`
+* `ImportGoodsServices.GDP_avg`
+* `ConsumerPriceInflation_avg`
+
+
+```{r}
+# economic factors lm
+lm.econ.1 <- lm(data = df, formula = VSI ~ ExportGoodsServices.GDP_avg + 
+                  FinalConsumptionExpenditure.GDP_avg + 
+                  GDP.Current_avg + 
+                  GDP.PerCapita.Current_avg +
+                  ImportGoodsServices.GDP_avg +
+                  ConsumerPriceInflation_avg)
+summary(lm.econ.1)
+
+# remove non-significant variables
+lm.econ.1.refined <- lm(data = df, formula = VSI ~ GDP.PerCapita.Current_avg)
+summary(lm.econ.1.refined)
+plot(lm.econ.1.refined, 1:2)
+```
+  
+The GDP per capita has a significant effect on Vaccination Success Index at the 0.05 level. This indicates that an increase in the per-capita GDP of a nation averaged over the last 17 years corresponds to an increase in the success of that country's vaccination campaign. 
+
+#### "COVID burden" factors
+
+Let's now build a model focused on COVID related factors. Note that all variables correspond to COVID cases and deaths reported prior to a country's given vaccination start date. 
+
+
+Selected variables:
+
+* `cumulative_total_cases_per_hundred_prevac` - index of disease prevalence
+* `cumulative_total_deaths_per_hundred_prevac` - index of disease severity
+* `cumulative_total_cases_per_hundred_last` - last reported total number of cases prior to vaccination start
+* `cumulative_total_deaths_per_hundred_last` - last reported total number of deaths prior to vaccination start
+* `monthly.new.cases.per.100_max` - max monthly case rate reached prior to vaccination start
+* `monthly.new.deaths.per.100_max` - max monthly death rate reached prior to vaccination start
+* `monthly_new_cases_per_hundred_last` - last reported monthly case rate reached prior to vaccination start
+* `monthly_new_deaths_per_hundred_last` - last reported monthly death rate reached prior to vaccination start
+
+
+```{r}
+# build covid model
+lm.covid.1 <- lm(VSI ~ cumulative_total_cases_per_hundred_prevac +
+                   cumulative_total_deaths_per_hundred_prevac +
+                   cumulative_total_cases_per_hundred_last +
+                   cumulative_total_deaths_per_hundred_last +
+                   monthly.new.cases.per.100_max +
+                   monthly.new.deaths.per.100_max +
+                   monthly_new_cases_per_hundred_last +
+                   monthly_new_deaths_per_hundred_last, data = data.train)
+summary(lm.covid.1)
+
+# remove non-significant variables
+lm.covid.1.refined <- lm(VSI ~ cumulative_total_deaths_per_hundred_prevac +
+                           cumulative_total_cases_per_hundred_last +
+                           monthly_new_deaths_per_hundred_last, data = data.train)
+summary(lm.covid.1.refined)
+
+lm.covid.1.refined.2 <- lm(VSI ~ cumulative_total_cases_per_hundred_last , data = data.train)
+summary(lm.covid.1.refined.2)
+```
+
+Cumulative deaths per hundred prior to vaccination start, total number of cases and new deaths last reported prior to vaccination start appear to significantly impact `VSI`. After refining the model, the number of cases last reported prior to vaccination start appears to be the most important factor influencing `VSI`. Therefore, vaccination success seems influenced by a country's number of cases shortly before starting its vaccination campaign, where a higher number of cases leads to a better vaccination score. This could be explained by the fact that people may have a stronger vaccination incentive when COVID cases are more frequent around them.  
+
+#### Political and country development factors
+
+Let's build a model focused on political factors as well as indices reflecting the development of a country. 
+
+Selected variables: 
+
+* `WorldRegion`
+* `Electricity.Access_2018` - since this would be related to infrastructure used for vaccination
+* `GDP.PerCapita.Current_2018` - latest GDP per capita
+* `UrbanPopulation.Prop_3yr` - how urban is pop
+* `LifeExpenctancy_2018`
+* `Trade.GDP_3yr` - see how much of economy is based in trade
+* `CompulsoryEducationDurationYears_3yr` - level of education
+* `WomenInBusinessLawIndex_2018`
+* `WorldBankIncomeClass_avg`
+* `RegimeType_avg`
+* `IndividualsUsingInternet_2018`
+
+```{r}
+# names(data.train)
+
+# build political & country development index model
+lm.poltical.1 <- lm(VSI ~ WorldRegion +
+                   Electricity.Access_2018 +
+                   GDP.PerCapita.Current_2018 +
+                   UrbanPopulation.Prop_3yr +
+                   LifeExpenctancy_2018 + 
+                   Trade.GDP_3yr +
+                   CompulsoryEducationDurationYears_3yr +
+                   WomenInBusinessLawIndex_2018 +
+                   WorldBankIncomeClass_avg +
+                   RegimeType_avg +
+                   IndividualsUsingInternet_2018, 
+                 data = data.train)
+
+summary(lm.poltical.1)
+
+# remove non-significant variables
+lm.poltical.1.refined <- lm(VSI ~ WorldRegion + LifeExpenctancy_2018 + IndividualsUsingInternet_2018, data = data.train)
+Anova(lm.poltical.1.refined)
+lm.poltical.1.refined.2 <- lm(VSI ~ LifeExpenctancy_2018 + IndividualsUsingInternet_2018, data = data.train)
+summary(lm.poltical.1.refined.2)
+lm.poltical.1.refined.3 <- lm(VSI ~ LifeExpenctancy_2018, data = data.train)
+summary(lm.poltical.1.refined.3)
+```
+
+Life expectancy, world region and the number of individuals using internet (in 2018) seem to influence VSI. After refining the model by removing non-significant variables, life expectancy alone seemed to best explain VSI. 
+
+
+#### Full model - TODO
+
+Selected variables:
+
+* `WorldRegion`
+* `Electricity.Access_3yr` - since this would be related to infrastructure used for vaccination
+* `cumulative_total_cases_per_hundred_prevac` - index of disease prevalence
+* `cumulative_total_deaths_per_hundred_prevac` - index of disease severity
+* `weekly.new.deaths.per.100_max` - max weekly death rate
+* `GDP.PerCapita.Current_2018` - latest GDP per capita
+* `UrbanPopulation.Prop_3yr` - how urban is pop
+* `LifeExpenctancy_rel.diff` - change in health metric over time (tracks increase or decrease in pop health)
+* `Trade.GDP_3yr` - see how much of economy is based in trade
+* `CompulsoryEducationDurationYears_3yr` - level of education
+
+Couple forward selections:
+```{r}
+fit1 <- lm(VSI ~ GDP.PerCapita.Current_2018, data.train)
+Anova(fit1)
+fit2 <- update(fit1, .~. + UrbanPopulation.Prop_3yr)
+Anova(fit2)
+fit3 <- update(fit2, .~. + cumulative_total_deaths_per_hundred_prevac)
+Anova(fit3) #cumulative_total_deaths_per_hundred_prevac not significant
+#try interactions
+fit4 <- lm(VSI ~ GDP.PerCapita.Current_2018 + Continent + GDP.PerCapita.Current_2018*Continent, data.train)
+Anova(fit4)
+fit5 <- lm(VSI ~ GDP.PerCapita.Current_2018 + weekly.new.deaths.per.100_max + GDP.PerCapita.Current_2018*weekly.new.deaths.per.100_max, data.train)
+Anova(fit5)
+```
+
+### Narrowing down the "best" dataset 
+
+
+running a linear model that includes all variables of the dataframe 
+
+Next, we will try to determine which of the created world sustainability measures 
+are trying a few simple linear models by selecting variables based on domain knowledge. We try the same models on wsd data from 2018, wsd over the last 3 years, wsd average and wsd change between 2001 and 2018 to see which data best explains VSI. 
+
+
+### WSD 2018
 
 ```{r fig.width=10, fig.height=10}
 
@@ -676,7 +932,7 @@ anova(lm.2018.full, lm.2018.red)
 
 There is no evidence to suggest that the full model better explains the data than the reduced model. It seems like life expectancy alone is sufficient for explaining VSI. 
 
-#### 3 year average
+### 3 year average
 
 ```{r fig.width=10, fig.height=10}
 # wsd average over the past 3 years
@@ -771,7 +1027,7 @@ anova(lm.3yr.full, lm.3yr.red)
 ```
 Same conclusion here: life expectancy is the only variable that significantly impacts VSI. 
 
-#### 17 year average
+### 17 year average
 
 ```{r fig.width=10, fig.height=10}
 # wsd average over all years (2001-2018)
@@ -874,7 +1130,7 @@ anova(lm.avg.full, lm.avg.red)
 
 Interesting! In the average over ~20 years (2001-2018), regime type (electoral autocracy, electoral democracy), SavingNaturalResourceDepletion_avg,  SavingNetForestDepletion_avg and LifeExpenctancy_avg now have become significant. The reduced model suggests that out of these, LifeExpenctancy_avg and Regime_Type are sufficient. 
 
-####17 year change
+### 17 year change
 
 ```{r fig.width=10, fig.height=10}
 # wsd change between 2001 and 2018
@@ -969,60 +1225,9 @@ summary(lm.diff.7)
 # summary(lm.diff.full)
 ```
 
-
-```{r}
-# Split the data 
-N <- length(df$country)
-n1 <- floor(.6*N)
-n2 <- floor(.2*N)
-
-#dropping country, continent and country.code 
-df.pred <- df %>% dplyr::select(-c(country, Continent, Country.Code))
-  
-set.seed(10)
-
-# Split data to three portions of .6, .2 and .2 of data size N
-idx_train <- sample(N, n1)
-idx_no_train <- (which(! seq(1:N) %in% idx_train))
-idx_test <- sample(idx_no_train, n2)
-idx_val <- which(! idx_no_train %in% idx_test)
-data.train <- as.data.frame(df.pred[idx_train,])
-data.test <- as.data.frame(df.pred[idx_test,])
-data.val <- as.data.frame(df.pred[idx_val,])
-data.train.test <- as.data.frame(df.pred[-idx_val,]) #for methods that don't require separate test set
-```
-
-Here's code to subdivide the train/test dfs based on what type of WSD predictors they include (i.e. so you can easily train a model only on the WSD 17-yr averages, plus static measures and covid cases/deaths). We should also pair down on the covid case/death variables in here!
-
-```{r}
-# WSD 2018
-data.train_2018 <- data.train %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
-data.test_2018 <- data.test %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
-data.val_2018 <- data.val %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
-data.train.test_2018 <- data.train.test %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
-
-# 3 year average
-data.train_3yr <- data.train %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
-data.test_3yr <- data.test %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
-data.val_3yr <- data.val %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
-data.train.test_3yr <- data.train.test %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
-
-# 17 year average
-data.train_avg <- data.train %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
-data.test_avg <- data.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
-data.val_avg <- data.val %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
-data.train.test_avg <- data.train.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
-
-#17 year change
-data.train_diff <- data.train %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
-data.test_diff <- data.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
-data.val_diff <- data.val %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
-data.train.test_diff <- data.train.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
-```
-
 The 17 year change variables seem overall less useful in predicting VSI. 
 
-### LASSO model selection
+## LASSO model selection
 
 Let's now try a slightly more data-driven approach, i.e. using LASSO to select the most relevant variables. Using the `wsd.avg.vsi` 17 year average dataset.
 Could also potentially use `wsd.sum.wide` here that has all 4 types of variables (2018, 3y average, 17y average, 17y difference), but that would mean dropping some variables first as LASSO doesn't like NAs. 
@@ -1070,4 +1275,7 @@ summary(fit.1se.lm)
 
 LASSO results using the `wsd.avg.vsi` suggest the same variables found with linear models. 
 
+## Random Forests
+
+## Neural Networks
 
