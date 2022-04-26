@@ -863,6 +863,7 @@ lm.avg.red <- lm(VSI ~ LifeExpenctancy_avg +
                    RegimeType_avg + 
                    Adj.SavingNaturalResourceDepletion_avg +
                    Adj.SavingNetForestDepletion_avg , data = wsd.avg.vsi)
+summary(lm.avg.red)
 
 # let's further reduce it to keep only significant variables
 lm.avg.red <- lm(VSI ~ LifeExpenctancy_avg + RegimeType_avg , data = wsd.avg.vsi)
@@ -1030,6 +1031,7 @@ Could also potentially use `wsd.sum.wide` here that has all 4 types of variables
 
 # remove all rows containing NAs (LASSO does not work without this step) - no NAs here it seems
 wsd.avg.vsi.sub <- na.omit(wsd.avg.vsi)
+nrow(wsd.avg.vsi.sub)
 
 # create matrices to feed into gmnet
 Y <- as.matrix(wsd.avg.vsi.sub[, 1]) # extract Y (VSI)
