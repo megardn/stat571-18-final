@@ -507,6 +507,7 @@ n_unique(final.df$country)
 
 ##WRITE CSVs FOR MODELING##
 #write.csv(case.wsd.wide, "data/case.wsd.wide-predictors.csv", row.names = FALSE)
+#write.csv(final.df, "data/final.df.csv", row.names = FALSE)
 ```
 
 ## Modeling
