@@ -39,7 +39,7 @@ Load outputs from EDA Rmds
 load("data/WorldSustainabilityData_Processed.Rda")
 #skim(wsd)
 max(wsd$Year)
-wsd <- wsd %>% dplyr::select(1:3,"Continent",4:21,23:ncol(wsd)) %>% # rearrange a little to group continent with the other geographic data
+wsd <- wsd %>% dplyr::select(1:3,"Continent", "WorldRegion", 4:21,23:31) %>% # rearrange a little to group continent & World Region with the other geographic data
   mutate(Country.Name=as.factor(Country.Name)) %>%
   rename(country=Country.Name)
 
@@ -67,7 +67,7 @@ To start, I'll make a wide df the WSD data into the COVID dataset containing: th
 ``` {r}
 # 2018 values
 wsd.2018 <- wsd %>% subset(Year==max(wsd$Year)) %>% dplyr::select(-Year) #filter to last year of WSD data
-colnames(wsd.2018)[4:30] <- paste(colnames(wsd.2018)[4:30], "2018", sep = "_") #add suffix
+colnames(wsd.2018)[5:30] <- paste(colnames(wsd.2018)[5:30], "2018", sep = "_") #add suffix
 head(wsd.2018)
 n_unique(wsd.2018$country) #only 109 of 141 countries have 2018 data
 ```
@@ -109,13 +109,12 @@ wsd.3yr.fac <- wsd %>% arrange(Year) %>%
   filter(n() == 3) %>%
   mutate(WorldBankIncomeClass = Mode(WorldBankIncomeClass),
          RegimeType = Mode(RegimeType),
-         WorldRegion=Mode(WorldRegion),
          nYears=n()) %>% #count how many years are being averaged for each country) %>%
   ungroup() %>%
-  dplyr::select(country, nYears, WorldBankIncomeClass, RegimeType, WorldRegion) %>%
+  dplyr::select(country, WorldRegion, nYears, WorldBankIncomeClass, RegimeType) %>%
   distinct()
 #n_unique(wsd.3yr.fac$country) #make sure no countries missing
-colnames(wsd.3yr.fac)[2:5] <- paste(colnames(wsd.3yr.fac)[2:5], "3yr", sep = "_") #add suffix
+colnames(wsd.3yr.fac)[3:5] <- paste(colnames(wsd.3yr.fac)[3:5], "3yr", sep = "_") #add suffix
 
 wsd.3yr <- merge(wsd.3yr.fac, wsd.3yr.num, by="country") %>% #rejoin num and fac
     dplyr::select(-Year_3yr, -nYears_3yr)
@@ -138,12 +137,11 @@ wsd.avg.fac <- wsd %>% arrange(Year) %>%
   group_by(country) %>%
   mutate(WorldBankIncomeClass = Mode(WorldBankIncomeClass),
          RegimeType = Mode(RegimeType),
-         WorldRegion=Mode(WorldRegion),
          nYears=n()) %>% #count how many years are being averaged for each country
   ungroup() %>%
-  dplyr::select(country, WorldBankIncomeClass, RegimeType, WorldRegion, nYears) %>%
+  dplyr::select(country, WorldRegion, WorldBankIncomeClass, RegimeType, nYears) %>%
   distinct()
-colnames(wsd.avg.fac)[2:5] <- paste(colnames(wsd.avg.fac)[2:5], "avg", sep = "_") #add suffix
+colnames(wsd.avg.fac)[3:5] <- paste(colnames(wsd.avg.fac)[3:5], "avg", sep = "_") #add suffix
 
 # #make sure modes returned as expected 
 # angola <- wsd$WorldBankIncomeClass[wsd$country=="Angola"]
@@ -215,7 +213,8 @@ Merge into one wide wsd dataframe:
 ```{r}
 # one predictor dataframe to rule them all
 wsd.df_list <- list(wsd.2018, wsd.3yr, wsd.avg, wsd.change) #dfs to merge
-wsd.sum.wide <- wsd.df_list %>% reduce(full_join, by='country') #join
+wsd.sum.wide <- wsd.df_list %>% reduce(full_join, by='country') %>%
+  dplyr::select(-c(WorldRegion.x, WorldRegion.y))#join
 #skim(wsd.sum.wide)
 
 #here's a long version if you want it
@@ -282,6 +281,7 @@ vac_start_df <- covid %>%
   mutate(days.to.start_rel = as.numeric(difftime(date, min(date), units = "days")),
          days.to.start_abs = as.numeric(difftime(date, "2020-12-01", units = "days"))) %>%
   rename(date.first.vac = date)
+
 # adding date of first vaccination for each country back to the covid df so it can be used as a cutoff
 vac_start_date <- vac_start_df %>% dplyr::select(country, date.first.vac)
 covid <- full_join(covid, vac_start_date, by ="country")
@@ -492,7 +492,7 @@ We can see that Somalia appears to be the country with the lowest VSI, and Cuba 
 
 ## Finalizing Dataset
 
-We'll write our final dataset by joining our WSD predictors, prevax COVID case & death predictors, and VSI
+We'll write our final dataset by joining our WSD predictors, prevax COVID case & death predictors, and VSI. 
 
 ```{r}
 #merging WSD predictors with cases, deaths & maxrate data
@@ -512,15 +512,17 @@ n_unique(final.df$country)
 
 ## Modeling
 
-Predicting inverse signed PC1 scores (from `data/VaccinationSucessIndexData-New.csv`) using `case.wsd.wide`.
-Subdividing our dataset into `data.train`(60%), `data.test` (20%), and `data.val` (20%) DROP COUNTRY, CONTINENT & COUNTRY.CODE
+We'll start by subsetting our dataset of 108 countries into `data.train`(60%), `data.test` (20%), and `data.val` (20%) 
 
 ```{r}
 # Split the data 
-N <- length(df$country)
+N <- length(final.df$country)
 n1 <- floor(.6*N)
 n2 <- floor(.2*N)
 
+#dropping country, continent and country.code 
+df.pred <- final.df %>% dplyr::select(-c(country, Continent, Country.Code))
+  
 set.seed(10)
 
 # Split data to three portions of .6, .2 and .2 of data size N
@@ -528,11 +530,40 @@ idx_train <- sample(N, n1)
 idx_no_train <- (which(! seq(1:N) %in% idx_train))
 idx_test <- sample(idx_no_train, n2)
 idx_val <- which(! idx_no_train %in% idx_test)
-data.train <- as.data.frame(df[idx_train,])
-data.test <- as.data.frame(df[idx_test,])
-data.val <- as.data.frame(df[idx_val,])
-data.train.test <- as.data.frame(df[-idx_val,]) #for methods that don't require separate test set
+data.train <- as.data.frame(df.pred[idx_train,])
+data.test <- as.data.frame(df.pred[idx_test,])
+data.val <- as.data.frame(df.pred[idx_val,])
+data.train.test <- as.data.frame(df.pred[-idx_val,]) #for methods that don't require separate test set
 ``` 
+
+Here's code to subdivide the train/test dfs based on what type of WSD predictors they include (i.e. so you can easily train a model only on the WSD 17-yr averages, plus static measures and covid cases/deaths). We should also pair down on the covid case/death variables in here!
+
+```{r}
+# WSD 2018
+data.train_2018 <- data.train %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+data.test_2018 <- data.test %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+data.val_2018 <- data.val %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+data.train.test_2018 <- data.train.test %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+
+# 3 year average
+data.train_3yr <- data.train %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+data.test_3yr <- data.test %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+data.val_3yr <- data.val %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+data.train.test_3yr <- data.train.test %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+
+# 17 year average
+data.train_avg <- data.train %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
+data.test_avg <- data.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
+data.val_avg <- data.val %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
+data.train.test_avg <- data.train.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
+
+#17 year change
+data.train_diff <- data.train %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
+data.test_diff <- data.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
+data.val_diff <- data.val %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
+data.train.test_diff <- data.train.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
+```
+
 
 ### Linear Models
 
@@ -729,6 +760,6 @@ mar22.wsd.wide <- inner_join(last.timepoint, wsd.sum.wide, by="country")
 
 #merging everything!
 wsd.covid.all <- inner_join(covid.all, wsd.sum.wide, by="country")
-skim(wsd.covid.all)
+#skim(wsd.covid.all)
 ```
 
