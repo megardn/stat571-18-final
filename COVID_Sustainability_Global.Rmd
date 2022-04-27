@@ -680,12 +680,11 @@ Using domain knowledge, we explore the relationship between measures capturing t
 
 Selected variables:
 
-* `ExportGoodsServices.GDP_avg`
-* `FinalConsumptionExpenditure.GDP_avg`
-* `GDP.Current_avg`
-* `GDP.PerCapita.Current_avg`
-* `ImportGoodsServices.GDP_avg`
-* `ConsumerPriceInflation_avg`
+* `ExportGoodsServices.GDP_avg` - part of the GDP resulting from exporting goods, averaged over 17 years
+* `FinalConsumptionExpenditure.GDP_avg` - apart of the GDP resulting from consumption/expenses of the country, averaged over 17 years
+* `GDP.Current_avg` - current overall GDP, averaged over 17 years
+* `GDP.PerCapita.Current_avg` - current GDP per capita, averaged over 17 years
+* `ConsumerPriceInflation_avg` - how much a country was affected by price inflation, averaged over 17 years
 
 
 ```{r}
@@ -694,14 +693,13 @@ lm.econ.1 <- lm(data = df, formula = VSI ~ ExportGoodsServices.GDP_avg +
                   FinalConsumptionExpenditure.GDP_avg + 
                   GDP.Current_avg + 
                   GDP.PerCapita.Current_avg +
-                  ImportGoodsServices.GDP_avg +
                   ConsumerPriceInflation_avg)
 summary(lm.econ.1)
 
 # remove non-significant variables
 lm.econ.1.refined <- lm(data = df, formula = VSI ~ GDP.PerCapita.Current_avg)
 summary(lm.econ.1.refined)
-plot(lm.econ.1.refined, 1:2)
+
 ```
   
 The GDP per capita has a significant effect on Vaccination Success Index at the 0.05 level. This indicates that an increase in the per-capita GDP of a nation averaged over the last 17 years corresponds to an increase in the success of that country's vaccination campaign. 
@@ -753,28 +751,25 @@ Let's build a model focused on political factors as well as indices reflecting t
 
 Selected variables: 
 
-* `WorldRegion`
-* `Electricity.Access_2018` - since this would be related to infrastructure used for vaccination
+* `WorldRegion` - part of the world (more specific than continents)
+* `Electricity.Access_2018` - latest reported electricity access, may influence theinfrastructure available for vaccination
 * `GDP.PerCapita.Current_2018` - latest GDP per capita
-* `UrbanPopulation.Prop_3yr` - how urban is pop
-* `LifeExpenctancy_2018`
-* `Trade.GDP_3yr` - see how much of economy is based in trade
-* `CompulsoryEducationDurationYears_3yr` - level of education
-* `WomenInBusinessLawIndex_2018`
-* `WorldBankIncomeClass_avg`
-* `RegimeType_avg`
-* `IndividualsUsingInternet_2018`
+* `UrbanPopulation.Prop_3yr` - how urban is the population, averaged between 2015-2018
+* `LifeExpenctancy_2018` - latest life expectancy
+* `CompulsoryEducationDurationYears_3yr` - level of education, averaged between 2015-2018
+* `WomenInBusinessLawIndex_2018` - latest proportion of women working in law and business fields
+* `WorldBankIncomeClass_avg` - categorical classifying as low, lower-middle, upper-middle, and high-income countries, averaged over 17 years
+* `RegimeType_avg` - categorical classifying as Closed Autocracy, Electoral Autocracy, Electoral Democracy, Liberal Democracy
+* `IndividualsUsingInternet_2018` - latest internet usage 
 
 ```{r}
-# names(data.train)
 
 # build political & country development index model
-lm.poltical.1 <- lm(VSI ~ WorldRegion +
+lm.political.1 <- lm(VSI ~ WorldRegion +
                    Electricity.Access_2018 +
                    GDP.PerCapita.Current_2018 +
                    UrbanPopulation.Prop_3yr +
                    LifeExpenctancy_2018 + 
-                   Trade.GDP_3yr +
                    CompulsoryEducationDurationYears_3yr +
                    WomenInBusinessLawIndex_2018 +
                    WorldBankIncomeClass_avg +
@@ -782,73 +777,97 @@ lm.poltical.1 <- lm(VSI ~ WorldRegion +
                    IndividualsUsingInternet_2018, 
                  data = data.train)
 
-summary(lm.poltical.1)
+summary(lm.political.1)
 
 # remove non-significant variables
-lm.poltical.1.refined <- lm(VSI ~ WorldRegion + LifeExpenctancy_2018 + IndividualsUsingInternet_2018, data = data.train)
-Anova(lm.poltical.1.refined)
-lm.poltical.1.refined.2 <- lm(VSI ~ LifeExpenctancy_2018 + IndividualsUsingInternet_2018, data = data.train)
-summary(lm.poltical.1.refined.2)
-lm.poltical.1.refined.3 <- lm(VSI ~ LifeExpenctancy_2018, data = data.train)
-summary(lm.poltical.1.refined.3)
+lm.political.1.refined <- lm(VSI ~ WorldRegion + LifeExpenctancy_2018 + IndividualsUsingInternet_2018, data = data.train)
+Anova(lm.political.1.refined)
+lm.political.1.refined.2 <- lm(VSI ~ LifeExpenctancy_2018 + IndividualsUsingInternet_2018, data = data.train)
+summary(lm.political.1.refined.2)
+lm.political.1.refined.3 <- lm(VSI ~ LifeExpenctancy_2018, data = data.train)
+summary(lm.political.1.refined.3)
 ```
 
 Life expectancy, world region and the number of individuals using internet (in 2018) seem to influence VSI. After refining the model by removing non-significant variables, life expectancy alone seemed to best explain VSI. 
 
 
-#### Full model - TODO
+#### Full model
+
+We will now use all relevant variables found in the economic, COVID burden and political/development models and feeding them into one overall model, with the goal to capture a more diverse set of factors that may impact VSI the strongest. 
 
 Selected variables:
 
-* `WorldRegion`
-* `Electricity.Access_3yr` - since this would be related to infrastructure used for vaccination
 * `cumulative_total_cases_per_hundred_prevac` - index of disease prevalence
-* `cumulative_total_deaths_per_hundred_prevac` - index of disease severity
-* `weekly.new.deaths.per.100_max` - max weekly death rate
 * `GDP.PerCapita.Current_2018` - latest GDP per capita
-* `UrbanPopulation.Prop_3yr` - how urban is pop
 * `LifeExpenctancy_rel.diff` - change in health metric over time (tracks increase or decrease in pop health)
-* `Trade.GDP_3yr` - see how much of economy is based in trade
-* `CompulsoryEducationDurationYears_3yr` - level of education
 
-Couple forward selections:
+
 ```{r}
-fit1 <- lm(VSI ~ GDP.PerCapita.Current_2018, data.train)
-Anova(fit1)
-fit2 <- update(fit1, .~. + UrbanPopulation.Prop_3yr)
-Anova(fit2)
-fit3 <- update(fit2, .~. + cumulative_total_deaths_per_hundred_prevac)
-Anova(fit3) #cumulative_total_deaths_per_hundred_prevac not significant
-#try interactions
-fit4 <- lm(VSI ~ GDP.PerCapita.Current_2018 + Continent + GDP.PerCapita.Current_2018*Continent, data.train)
-Anova(fit4)
-fit5 <- lm(VSI ~ GDP.PerCapita.Current_2018 + weekly.new.deaths.per.100_max + GDP.PerCapita.Current_2018*weekly.new.deaths.per.100_max, data.train)
-Anova(fit5)
+# build full model 
+lm.full <- lm(VSI ~ GDP.PerCapita.Current_avg +
+             cumulative_total_cases_per_hundred_last +
+             LifeExpenctancy_2018,
+             data = data.train)
+Anova(lm.full)
+
+# remove non-significant variables
+lm.full.refined <- lm(VSI ~ LifeExpenctancy_2018,
+             data = data.train)
+Anova(lm.full.refined)
+
+# plotting model diagnosis plots
+plot(lm.full.refined, 1:2)
+
+```
+When using all relevant variables found in prior models, it turns out that life expectancy (reported in 2018) is the only variable having a significant effect on `VSI`. Diagnostic plots show that the model sufficiently fulfills linear model assumptions of normality and homoscedasticity. The relationship between life expectancy and VSI is plotted here: 
+
+```{r}
+# get life expectancy p value
+lm.full.refined.summ <- summary(lm.full.refined)
+pval <- lm.full.refined.summ$coefficients[["LifeExpenctancy_2018", "Pr(>|t|)"]]
+
+# get life expectancy correlation with VSI
+cor_value <- cor(data.train$LifeExpenctancy_2018, data.train$VSI, use = "complete.obs")
+
+plot_VSI_lifexp <- df %>% # using full df here to include country information
+  ggplot(aes(x = LifeExpenctancy_2018, y = VSI)) +
+  geom_point(aes(group = country, color = country), show.legend = FALSE) +
+  geom_smooth(method = "lm", color = "grey") +
+  theme_bw() +
+  ggtitle("Association between life expectancy and VSI") +
+  xlab("Life expectancy (2018)") +
+  annotate("text", x = 56, y = max(df["VSI"]) - 0.5, # position
+           size = 4, # font size
+           label = paste0("Correlation: ", sprintf("%.3f", cor_value), "\n", # correlation label
+                          "p-value = ", sprintf("%.3f", pval))) # pvalue label
+plot_VSI_lifexp
+# ggplotly(plot_VSI_lifexp) # generate interactive plot
+
 ```
 
-### Narrowing down the "best" dataset 
+
+### Selecting the "best" dataset 
+
+In this second approach, we determine which of the created world sustainability measures (`WSD`) are most informative in relation to `VSI`. We try the same models on wsd data from 2018, wsd over the last 3 years, wsd average and wsd change between 2001 and 2018 to see which data best explains VSI. 
 
 
-running a linear model that includes all variables of the dataframe 
+#### WSD 2018
 
-Next, we will try to determine which of the created world sustainability measures 
-are trying a few simple linear models by selecting variables based on domain knowledge. We try the same models on wsd data from 2018, wsd over the last 3 years, wsd average and wsd change between 2001 and 2018 to see which data best explains VSI. 
-
-
-### WSD 2018
+Let's first look at summary `WSD` measures from 2018 (i.e., the latest reported measures). 
 
 ```{r fig.width=10, fig.height=10}
 
 # latest wsd data (from 2018)
 # merge VSI to the wsd data
-wsd.2018.vsi <- inner_join(new.data.with.VSI[c("country", "VSI")], wsd.2018, by = "country")
-nrow(wsd.2018.vsi) # countries left after merge
+# wsd.2018.vsi <- inner_join(new.data.with.VSI[c("country", "VSI")], wsd.2018, by = "country")
+# nrow(wsd.2018.vsi) # countries left after merge
 
 # create correlation plot to see whether some variables are highly correlated (not tolerated by lm)
-wsd.2018.vsi %>% 
+data.train_2018 %>% 
   select(-VSI) %>% # remove outcome variable as we want to highlight corrs among predictors only
+  select(-contains(c("deaths", "cases"))) %>%
   select_if(., is.numeric) %>%
-  cor(.) %>%
+  cor(., use = "complete.obs") %>%
   # corrplot(method = 'color', order = 'alphabet', type = 'lower', diag = FALSE)
   corrplot(method = "color", 
            type = "upper", order = "hclust", 
@@ -858,81 +877,85 @@ wsd.2018.vsi %>%
            diag = FALSE 
            )
 # find names of highly correlated variables
-correlations <- wsd.2018.vsi %>% 
+correlations <- data.train_2018 %>% 
   select(-VSI) %>%
+  select(-contains(c("deaths", "cases"))) %>%
   select_if(., is.numeric) %>%
-  cor(.)
-correlations[correlations < 0.8 | correlations ==1] <- ""
+  cor(., use = "complete.obs")
+correlations[correlations < 0.8 | correlations == 1] <- ""
 correlations
 
 # some variables are perfectly or almost perfectly correlated. We will trim variables that have correlations over 0.8 to avoid multi-collinearity. 
-wsd.2018.vsi <- wsd.2018.vsi %>%
-  select(-c(country, Country.Code, Continent, WorldRegion_2018, # also dropping country/continent information 
-            Electricity.Access_2018, # LifeExpenctancy_2018 corr 0.83
-            TotalNaturalResources.GDP_2018, # SavingNaturalResourceDepletion_2018 corr 0.86
+data.train_2018.sub <- data.train_2018 %>%
+  select(-c(date_last, WorldRegion,
             ImportGoodsServices.GDP_2018, # ExportGoodsServices.GDP_2018 corr 0.92
             Trade.GDP_2018, # ExportGoodsServices.GDP_2018 0.98
+            TotalNaturalResources.GDP_2018, # SavingNaturalResourceDepletion_2018 corr 0.86
+            Electricity.Access_2018, # LifeExpenctancy_2018 corr 0.83
             GrossNationalExpenditure.GDP_2018, # FinalConsumptionExpenditure.GDP_2018 corr 0.88
             RuralPopulation.Prop_2018 # UrbanPopulation.Prop_2018 corr 1
-            ))
+            )) %>%
+  select(-contains(c("deaths", "cases")))
 
 
 # # trying a few models with variables that should make sense...
 # internet use
-lm.2018.1 <- lm(VSI ~ IndividualsUsingInternet_2018, data = wsd.2018.vsi)
+lm.2018.1 <- lm(VSI ~ IndividualsUsingInternet_2018, data = data.train_2018.sub)
 summary(lm.2018.1)
 # internet use does explain VSI when life expectancy and other vars are not there
 
 # regime type
-lm.2018.2 <- lm(VSI ~ RegimeType_2018, data = wsd.2018.vsi)
+lm.2018.2 <- lm(VSI ~ RegimeType_2018, data = data.train_2018.sub)
 summary(lm.2018.2)
 # regime type also significantly impacts VSI when used alone
 
 # urban population percentage
-lm.2018.3 <- lm(VSI ~ UrbanPopulation.Prop_2018, data = wsd.2018.vsi)
+lm.2018.3 <- lm(VSI ~ UrbanPopulation.Prop_2018, data = data.train_2018.sub)
 summary(lm.2018.3)
 # urban population also significantly impacts VSI when used alone
 
 # years of compulsory education
-lm.2018.4 <- lm(VSI ~ CompulsoryEducationDurationYears_2018, data = wsd.2018.vsi)
+lm.2018.4 <- lm(VSI ~ CompulsoryEducationDurationYears_2018, data = data.train_2018.sub)
 summary(lm.2018.4)
 # compulsory education also significantly impacts VSI when used alone
 
 # GDP per capita
-lm.2018.5 <- lm(VSI ~ GDP.PerCapita.Current_2018, data = wsd.2018.vsi)
+lm.2018.5 <- lm(VSI ~ GDP.PerCapita.Current_2018, data = data.train_2018.sub)
 summary(lm.2018.5)
 # GDP per capita also significantly impacts VSI when used alone
 
 # Life expectancy
-lm.2018.6 <- lm(VSI ~ LifeExpenctancy_2018, data = wsd.2018.vsi)
+lm.2018.6 <- lm(VSI ~ Electricity.Access_2018, data = data.train_2018)
 summary(lm.2018.6)
 # Life expectancy also significantly impacts VSI when used alone
 
 # model with all these variables
-lm.2018.7 <- lm(VSI ~ LifeExpenctancy_2018 + 
+lm.2018.7 <- lm(VSI ~ LifeExpenctancy_2018 +
                   UrbanPopulation.Prop_2018 + 
                   RegimeType_2018 + 
                   CompulsoryEducationDurationYears_2018 + 
                   GDP.PerCapita.Current_2018 +
                   IndividualsUsingInternet_2018, 
-               data = wsd.2018.vsi)
+               data = data.train_2018.sub)
 summary(lm.2018.7)
 # only Life Expectancy is useful here, It seems like this variable may be sufficient at predicting VSI. 
 
 # fit model (without any country/continent info)
-lm.2018.full <- lm(VSI ~ ., data = wsd.2018.vsi)
+lm.2018.full <- lm(VSI ~ ., data = data.train_2018.sub)
 summary(lm.2018.full)
 
 # only LifeExpenctancy_2018 shows a significant effect on VSI. Trying a reduced model with only this variable
-lm.2018.red <- lm(VSI ~ LifeExpenctancy_2018, data = wsd.2018.vsi)
+lm.2018.red <- lm(VSI ~ LifeExpenctancy_2018, data = data.train_2018.sub)
 summary(lm.2018.red)
 anova(lm.2018.full, lm.2018.red)
 
 ```
 
+--- From here and below needs updating
+
 There is no evidence to suggest that the full model better explains the data than the reduced model. It seems like life expectancy alone is sufficient for explaining VSI. 
 
-### 3 year average
+#### 3 year average
 
 ```{r fig.width=10, fig.height=10}
 # wsd average over the past 3 years
@@ -1027,7 +1050,7 @@ anova(lm.3yr.full, lm.3yr.red)
 ```
 Same conclusion here: life expectancy is the only variable that significantly impacts VSI. 
 
-### 17 year average
+#### 17 year average
 
 ```{r fig.width=10, fig.height=10}
 # wsd average over all years (2001-2018)
@@ -1130,7 +1153,7 @@ anova(lm.avg.full, lm.avg.red)
 
 Interesting! In the average over ~20 years (2001-2018), regime type (electoral autocracy, electoral democracy), SavingNaturalResourceDepletion_avg,  SavingNetForestDepletion_avg and LifeExpenctancy_avg now have become significant. The reduced model suggests that out of these, LifeExpenctancy_avg and Regime_Type are sufficient. 
 
-### 17 year change
+#### 17 year change
 
 ```{r fig.width=10, fig.height=10}
 # wsd change between 2001 and 2018
