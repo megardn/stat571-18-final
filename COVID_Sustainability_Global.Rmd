@@ -512,18 +512,16 @@ n_unique(final.df$country)
 
 ## Modeling
 
-Predicting inverse signed PC1 scores (from `data/VaccinationSucessIndexData-New.csv`) using `case.wsd.wide`.
-
-Subdividing our dataset of 108 countries into `data.train`(60%), `data.test` (20%), and `data.val` (20%) 
+We'll start by subsetting our dataset of 108 countries into `data.train`(60%), `data.test` (20%), and `data.val` (20%) 
 
 ```{r}
 # Split the data 
-N <- length(df$country)
+N <- length(final.df$country)
 n1 <- floor(.6*N)
 n2 <- floor(.2*N)
 
 #dropping country, continent and country.code 
-df.pred <- df %>% dplyr::select(-c(country, Continent, Country.Code))
+df.pred <- final.df %>% dplyr::select(-c(country, Continent, Country.Code))
   
 set.seed(10)
 
