@@ -29,7 +29,7 @@ if(!require("pacman")) install.packages("pacman")
 
 pacman::p_load(tidyverse, dplyr, ggplot2, ggthemes, data.table, lubridate,
                GGally, RColorBrewer, ggsci, plotROC, usmap,
-               plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car, keras, neuralnet, tensorflow, missForest)
+               plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car, keras, neuralnet, tensorflow, missForest, fastDummies)
 ```
 
 
@@ -567,39 +567,6 @@ data.train.test_diff <- data.train.test %>% dplyr::select(-c(contains("_2018") |
 
 ### Linear Models
 
-Building a couple linear models:
-
-Picking variables for backward selection:
-* `Continent`
-* `Electricity.Access_3yr` - since this would be related to infrastructure used for vaccination
-* `cumulative_total_cases_per_hundred_prevac` - index of disease prevalence
-* `cumulative_total_deaths_per_hundred_prevac` - index of disease severity
-* `weekly.new.deaths.per.100_max` - max weekly death rate
-* `GDP.PerCapita.Current_2018` - latest GDP per capita
-* `UrbanPopulation.Prop_3yr` - how urban is pop
-* `LifeExpenctancy_rel.diff` - change in health metric over time (tracks increase or decrease in pop health)
-* `Trade.GDP_3yr` - see how much of economy is based in trade
-* `CompulsoryEducationDurationYears_3yr` - level of education
-
-Couple forward selections:
-```{r}
-fit1 <- lm(VSI ~ GDP.PerCapita.Current_2018, data.train)
-Anova(fit1)
-fit2 <- update(fit1, .~. + UrbanPopulation.Prop_3yr)
-Anova(fit2)
-fit3 <- update(fit2, .~. + cumulative_total_deaths_per_hundred_prevac)
-Anova(fit3) #cumulative_total_deaths_per_hundred_prevac not significant
-
-
-#try interactions
-fit4 <- lm(VSI ~ GDP.PerCapita.Current_2018 + Continent + GDP.PerCapita.Current_2018*Continent, data.train)
-Anova(fit4)
-
-fit5 <- lm(VSI ~ GDP.PerCapita.Current_2018 + weekly.new.deaths.per.100_max + GDP.PerCapita.Current_2018*weekly.new.deaths.per.100_max, data.train)
-Anova(fit5)
-```
-
-
 ### Regsubsets
 
 Running regsubsets:
@@ -630,7 +597,7 @@ Attempting neural nets:
 
 **may need to set dummy vars for categorical**
 
-Defining neural nets -   
+Defining neural nets:   
   + normalization
   + two layers with 8 neurons in each layer
   + Activation function is `Relu`
@@ -650,8 +617,7 @@ Imputing & setting x and y data as matrixes
 #need to impute over NAs, using missForest for now
 data.nn.train <- data.train.test %>% 
   mutate(across(where(is_character),as_factor)) %>% 
-  dplyr::select(-c(Country.Code, country)) %>% #remove country
-  select_if(funs(!is.Date(.)))
+  select_if(funs(!is.Date(.))) #drop dates, can't be imputed
 data.nn.trainimp <- missForest(data.nn.train, variablewise = TRUE)
 data.nn.trainimp$ximp
 data.nn.trainimp$OOBerror #high :(
@@ -660,23 +626,25 @@ data.nn.trainimp$OOBerror #high :(
 good.predict <- which(data.nn.trainimp$OOBerror < 0.25) %>% unname()
 nn.trainimp <- data.nn.trainimp$ximp[, c(good.predict)]
 setdiff(names(data.nn.train), names(nn.trainimp)) #see what cols were lost
-# dim(nn.trainimp) #imputing gives us 108 cols to work with
-# dim(data.nn.train[ , colSums(is.na(data.nn.train)) == 0]) #as opposed to dropping all NA cols, which only gives us 67
-# dim(na.omit(data.nn.train)) #or dropping rows with NAs, which would mean only 17 countries
+dim(nn.trainimp) #imputing gives us 89 cols to work with
+dim(data.nn.train[ , colSums(is.na(data.nn.train)) == 0]) #as opposed to dropping all NA cols, which only gives us 57
+dim(na.omit(data.nn.train)) #or dropping rows with NAs, which would mean only 19 countries
+
+#set dummy variables for categorical
+nn.train.final <- dummy_cols(nn.trainimp, remove_first_dummy = TRUE) %>% #setting remove_first_dummy = TRUE to have base levels
+ select_if(funs(!is.factor(.))) #drop original factors
 
 ## training input/y: need to be matrix/vector
-data_xtrain <- nn.trainimp[, -99] %>% select_if(is.numeric)  #dim(data3_xtrain), remove y ~may need to set dummy vars - just grabbing numeric for now to test!
-data_ytrain <- nn.trainimp[, 99]   # find y
-data_xtrain <- as.matrix(data_xtrain) # make sure it it is a matrix
-data_ytrain <- as.matrix(data_ytrain) # make sure it it is a matrix
+data_xtrain <- nn.train.final %>% dplyr::select(-VSI) %>% as.matrix()  #dim(data3_xtrain)
+data_ytrain <- nn.train.final %>% dplyr::select(VSI) %>% as.matrix()  # find y
 
-## validation input/y
+## validation input/y - figure this out with impute/dummy vars later!
 data_xval <- data.val[, -204]   #dim(data3_xtrain), remove y
 data_yval <- data.val[, 204]   # find y
 data_xval <- as.matrix(data_xval) # make sure it it is a matrix
 data_yval <- as.matrix(data_yval) # make sure it it is a matrix
 ```
-cumulative_total_deaths_last
+
 
 Build and compile model
 ```{r}
@@ -687,9 +655,9 @@ set_random_seed(10)
 p <- dim(data_xtrain)[2] # number of input variables (columns)
 model <- keras_model_sequential() %>%
   layer_batch_normalization(input_shape = c(p)) %>% #recommended, not certain it's correct
-  layer_dense(units = 12, activation = "relu") %>%
+  layer_dense(units = 16, activation = "relu") %>%
   # layer_dropout(0.25) %>% # drop 25% - https://stackoverflow.com/questions/37232782/nan-loss-when-training-regression-network
-  layer_dense(units = 12, activation = "relu") %>%  
+  layer_dense(units = 8, activation = "relu") %>%  
   # layer_dropout(0.25) %>% # drop 25%
   layer_dense(units = 1, activation = "linear") # output = 1 unit for linear(?) regression
 print(model)
@@ -701,28 +669,61 @@ print(model)
 #   metrics = list("mean_squared_error"),
 # )
 
-#compile model (based on https://tensorflow.rstudio.com/tutorials/beginners/basic-ml/tutorial_basic_regression/)
-model %>%
-  compile(
-    loss = "mse",
-    optimizer = optimizer_rmsprop(),
-    metrics = c("accuracy")
-  )
+# #compile model B (based on https://tensorflow.rstudio.com/tutorials/beginners/basic-ml/tutorial_basic_regression/)
+# model %>%
+#   compile(
+#     loss = "mse",
+#     optimizer = optimizer_rmsprop(),
+#     metrics = list("mean_absolute_error")
+#   )
+
+#compile model C (based on https://towardsdatascience.com/keras-and-r-predicting-blood-glucose-levels-with-the-sequential-model-596efe89a6b8)
+model %>% compile(
+  loss = 'mean_squared_error',
+  optimizer = 'adam',
+  metrics = c('mae')
+)
 ```
 
 Fitting model
+
+good (?) params: 
+12x12x1, model B, epochs=150 & batch size=50 @ epoch 20
+  - loss = 1.95, val_loss = 3.73
+12x12x1, model B, epochs=150 & batch size=32 @ epoch 20
+  - loss = 1.92, val_loss = 3.71
+12x12x1, model B, epochs=150 & batch size=24 @ epoch 20
+  - loss = 1.73, val_loss = 3.46
+12x12x1, model B, epochs=150 & batch size=18 @ epoch 20
+  - loss = 1.48, val_loss = 3.32
+12x12x1, model B, epochs=150 & batch size=12 @ epoch 20
+  - loss = 1.67, val_loss = 2.93
+*16x8x1, model B, epochs=150 & batch size=12 @ epoch 20*
+  - loss = 1.23, val_loss = 2.1
+*16x8x1, model B, epochs=150 & batch size=24 @ epoch 20*
+  - loss = 1.1, val_loss = 2.4
+16x8x1, model B, epochs=150 & batch size=24 @ epoch 20
+  - loss = 1.15, val_loss = 2.65
+16x8x1, model C, epochs=150 & batch size=36 @ epoch 20
+  - loss = 1.3, val_loss = 2.83
+16x8x1, model C, epochs=150 & batch size=24 @ epoch 20
+  - loss = 1.18, val_loss = 2.41
+16x8x1, model C, epochs=150 & batch size=12 @ epoch 20
+  - loss = 1.24, val_loss = 2.06 - looks gross though
 
 ```{r}
 set_random_seed(10)
 fit.nn <- model %>% fit(
   data_xtrain,
   data_ytrain,
-  epochs = 100,
-  batch_size = 20,
+  epochs = 150,
+  batch_size = 12,
   validation_split = .15 # set 15% of the data_xtrain, data_ytrain as the validation data
 )
 
 plot(fit.nn)
+fit.nn$metrics$loss[20]
+fit.nn$metrics$val_loss[20]
 ```
 
 # Appendix
