@@ -29,7 +29,7 @@ if(!require("pacman")) install.packages("pacman")
 
 pacman::p_load(tidyverse, dplyr, ggplot2, ggthemes, data.table, lubridate,
                GGally, RColorBrewer, ggsci, plotROC, usmap,
-               plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car)
+               plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car, keras, neuralnet, tensorflow, missForest)
 ```
 
 
@@ -62,15 +62,16 @@ Before attempting to merge, I'll parse down the dataframes so we can hopefully w
 
 ## WSD Summary Vales
 
-To start, I'll make a wide df the WSD data into the COVID dataset containing: the latest (2018) data; average of each parameter over time (2001 to 2018); the average of the last 3 years of data (2016-2018 for most countries); change in each parameter over time (2001-2018). Also made one for latest date for each country since 32 are missing 2018 data, not sure which we want to use!
+To start, I'll make a wide df the WSD data into the COVID dataset containing: the latest (2018) data; average of each parameter over time (2001 to 2018); the average of the last 3 years of data (2016-2018 for most countries); change in each parameter over time (2001-2018).
 
 ``` {r}
 # 2018 values
 wsd.2018 <- wsd %>% subset(Year==max(wsd$Year)) %>% dplyr::select(-Year) #filter to last year of WSD data
 colnames(wsd.2018)[5:30] <- paste(colnames(wsd.2018)[5:30], "2018", sep = "_") #add suffix
 head(wsd.2018)
-n_unique(wsd.2018$country) 
+n_unique(wsd.2018$country) #only 109 of 141 countries have 2018 data
 ```
+Because only `r n_unique(wsd.2018$country)` of `r n_unique(wsd$country)` countries have sustainability data in 2018, I've also made a df including the latest available data from each country. However, we may not want to use it since the last data represents a wide range from `r unname(summary(wsd.latest$Year_latest)[1])` to `unname(summary(wsd.latest$Year_latest)[6])`
 
 ```{r}
 # latest data for each country
@@ -82,7 +83,7 @@ colnames(wsd.latest)[2:31] <- paste(colnames(wsd.latest)[2:31], "latest", sep = 
 table(as.factor(wsd.latest$Year_latest)) # see yr frequencies
 ```
 
-Values averaged across 2016-2018; only includes countries with da. 
+Values averaged across 2016-2018; only includes countries with data from all 3 years. 
 
 ```{r}
 # 3-yr averages for numeric
@@ -119,7 +120,8 @@ wsd.3yr <- merge(wsd.3yr.fac, wsd.3yr.num, by="country") %>% #rejoin num and fac
     dplyr::select(-Year_3yr, -nYears_3yr)
 nrow(wsd.3yr)
 ```
-Averaging across all years for every country with available data. 
+
+Averaging across all years for every country with available data.  **add table/graph to show how many years each country has data for? or is this more of an EDA thing? Should EDA be it's own section above the Summary Values ones or should it all be presented together?**
 
 ```{r}
 # averages for numeric
@@ -160,15 +162,12 @@ As you can see from the frequency table above, only 60 countries have data for a
 # nrow(wsd.avg)
 ```
 
+Change in each factor over 10 years (2008-2018).
 
-Change in each factor over 10 years (2008-2018)
-
-```{r}
+```{r, warning = FALSE}
 # change in each parameter over 10 years
-
 # define function to get relative change
 rel.diff <- function(x) {(x - lag(x))/lag(x)} # define function to get relative change
-
 
 wsd.change.num <- wsd %>% 
   group_by(country) %>%
@@ -234,16 +233,11 @@ head(wsd.sum.wide)
 
 ## COVID Summary Values
 
-I'll attempt to make the dataframe smaller and more mergable by filtering down into summary variables, similar to WSD. Some possibilities of things we could compare between countries:
-- Date vaccinations start
-- mean daily vaccinations during first 6 months of availability
-- peak daily new deaths & date of that peak (actual date or number days from start)
-- days to binned_people_vaccinated_per_hundred >= X
-- binned_people_vaccinated_per_hundred as of March 2022
-- percent vaccines as of March 2022
+In order to come up with meaningful summary predictors and dependent variables that are compatible with our WSD, we'll next summaries our data on covid cases, deaths, and vaccinations. For our purposes in this project, we'll treat cases and deaths prior to each country's vaccine roll-out as independent variables (predictors) alongside the WSD. Vaccination data will be synthesized using PCA to create a the Vaccination Success Index (VSI), a composite score which we will use to indicate how well a country was able to vaccinate its citizens. 
+
+First, we create a dataframe with the latest COVID data from each country. Every country has some data from March 17, 2022, though some countries' last reported vaccination data was from as early as `unname(summary(last.timepoint$date.vac_last)[1])`.
 
 ```{r}
-skim(covid)
 #last day with data for each country
 last.timepoint1 <- covid %>% group_by(country) %>%
   arrange(country,date) %>%
@@ -273,13 +267,14 @@ colnames(last.timepoint)[2:43] <- paste(colnames(last.timepoint)[2:43], "last", 
 # #find date of vaccination events
 # table(covid$vaccination_events)
 # table(covid$vaccine_dose_events)
-# table(covid$binned_people_vaccinated_per_hundred)
+
+summary(last.timepoint$date.vac_last)
 ```
 
-Vaccine outcomes:
+Next, we'll calculate predictors from COVID case and death rates prior to the day each country reported starting to vaccinate. 
 
-```{r}
-# creating dfs of vaccination events - much of this is from covid_EDA.Rmd and can be removed/cleaned up once Rmds are merged!
+``` {r, warning=FALSE}
+# find the date each country reported starting to vaccinate
 vac_start_df <- covid %>%
   dplyr::select(country, date, vaccination_events) %>%
   filter(vaccination_events == "vac_start") %>%
@@ -287,10 +282,57 @@ vac_start_df <- covid %>%
          days.to.start_abs = as.numeric(difftime(date, "2020-12-01", units = "days"))) %>%
   rename(date.first.vac = date)
 
-# adding date of first vaccination for each country to the covid df so it can be used as a baseline later -
+# adding date of first vaccination for each country back to the covid df so it can be used as a cutoff
 vac_start_date <- vac_start_df %>% dplyr::select(country, date.first.vac)
 covid <- full_join(covid, vac_start_date, by ="country")
 
+# cases & deaths up until vaccines start - USE THIS!
+covid_prevac <- covid %>%
+  group_by(country) %>%
+  drop_na(date.first.vac) %>%
+  subset(date < date.first.vac) %>%
+  arrange(country,date) %>%
+  slice_tail(n=1) %>%
+  ungroup() %>%
+  dplyr::select("country"| contains("case") | contains("death"))
+colnames(covid_prevac)[2:19] <- paste(colnames(covid_prevac)[2:19], "prevac", sep = "_") #add suffix
+
+#peak rates up until vaccinations start - USE THIS
+covid_maxrate <- covid %>%
+  drop_na(date.first.vac) %>%
+  subset(date < date.first.vac) %>% 
+  dplyr::select("country" | contains(c("new", "daily"))) %>%
+  dplyr::select(-contains("vac")) %>% #drop vac cols
+  group_by(country) %>%
+  mutate_if(is.numeric, ~replace(., is.na(.), -1)) %>% #temporarily replace na's with -1
+  summarise_if(is.numeric, max) %>%
+  na_if(-1) %>% #set -1's back to na
+  rename(daily.new.cases.per.100 = daily_new_cases_per_hundred,
+         daily.new.deaths.per.100 = daily_new_deaths_per_hundred,
+         monthly.new.cases.per.100 = monthly_new_cases_per_hundred,
+         monthly.new.deaths.per.100 = monthly_new_deaths_per_hundred,
+         weekly.new.cases.per.100 = weekly_new_cases_per_hundred,
+         weekly.new.deaths.per.100 = weekly_new_deaths_per_hundred) #using . and _ separators to match WSD in case we want to pivot long later
+colnames(covid_maxrate)[2:13] <- paste(colnames(covid_maxrate)[2:13], "max", sep = "_") #add suffix
+```
+
+Finally we'll merge these COVID predictors into a single dataframe.
+
+```{r}
+#df for cases and deaths
+case.df_list <- list(covid_prevac, covid_maxrate)
+covid.predict <- case.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
+#skim(covid.predict)
+```
+
+
+### Computing Vaccination Success Index
+
+Since defining a country's success in administering vaccines is multifaceted, we'll construct the VSI on several summary metrics in addition to final vaccination counts. For instance, it is likely meaningful to account for how long it took each country to reach certain milestones (such as first starting to administer vaccines, administering X doses to each citizen, or vaccinating X% of the population) as well its peak rate of vaccination (the maximum rate of daily or weekly vaccinations) in determining whether a country did a "good job" in administering COVID vaccines to its populace. 
+
+**much of this is from covid_EDA.Rmd and can be removed/cleaned up once Rmds are fully merged!**
+
+```{r, warning=FALSE}
 #days until country admins 1 dose per person
 vac_1_dose <- covid %>%
   dplyr::select(country, date, vaccine_dose_events, date.first.vac) %>% #
@@ -299,7 +341,7 @@ vac_1_dose <- covid %>%
          days.to.1d_abs = as.numeric(difftime(date, "2020-12-01", units = "days")), # setting Dec 1, 2020 as vaccine baseline to compare across vaccine events
          days.to.1d_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
          ) 
-vac_1_dose[which.min(vac_1_dose$date),] #first country to get one dose per person
+  #vac_1_dose[which.min(vac_1_dose$date),] #first country to get one dose per person
 
 #days until country admins 2 doses per person
 vac_2_doses <- covid %>%
@@ -309,7 +351,7 @@ vac_2_doses <- covid %>%
          days.to.2d_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
          days.to.2d_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
          )
-vac_2_doses[which.min(vac_2_doses$date),] #first country to hit 2 doses
+  #vac_2_doses[which.min(vac_2_doses$date),] #first country to hit 2 doses
 
 #days until country reports vaccinating 10% of pop
 vac_10_df <- covid %>%
@@ -319,7 +361,7 @@ vac_10_df <- covid %>%
          days.to.10pct_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
          days.to.10pct_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
          )
-nrow(vac_10_df)
+  #nrow(vac_10_df)
 
 #days until country reports vaccinating 20% of pop
 vac_20_df <- covid %>%
@@ -329,7 +371,7 @@ vac_20_df <- covid %>%
          days.to.20pct_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
          days.to.20pct_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
          )
-nrow(vac_20_df)
+  #nrow(vac_20_df)
 
 #days until country reports vaccinating 30% of pop
 vac_30_df <- covid %>%
@@ -339,8 +381,7 @@ vac_30_df <- covid %>%
          days.to.30pct_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
          days.to.30pct_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
          )
-nrow(vac_30_df)
-n_unique(vac_30_df$country)
+  #nrow(vac_30_df)
 
 #days until country reports vaccinating 50% of pop
 vac_50_df <- covid %>%
@@ -350,19 +391,6 @@ vac_50_df <- covid %>%
          days.to.50pct_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
          days.to.50pct_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
          )
-
-# #percent of ppl w/ 1 dose of vaccine as of mar 17 2022 - redundant to last.timepoint
-# binned_vac <- covid %>%
-#   dplyr::select(country, date, binned_people_vaccinated_per_hundred) %>%
-#   drop_na(binned_people_vaccinated_per_hundred) %>%
-#   group_by(country) %>%
-#   arrange(date) %>%
-#   slice_tail(n=1) %>%
-#   ungroup() %>%
-#   rename (bin.ppl.vac.per100_17mar22=binned_people_vaccinated_per_hundred)
-#summary(binned_vac$date)
-#n_unique(binned_vac$country) #no countries lost
-
 
 # mean daily rate of vaccinations per million ppl in first 6 months of each country's administration
 vac_rate <- covid %>%
@@ -385,55 +413,9 @@ vac_maxrate <- covid %>%
          daily.vac.per.mil_max = daily_vaccinations_per_million)
 ```
 
-``` {r}
-# cases & deaths up until vaccines start
-covid_prevac <- covid %>%
-  group_by(country) %>%
-  drop_na(date.first.vac) %>%
-  subset(date < date.first.vac) %>%
-  arrange(country,date) %>%
-  slice_tail(n=1) %>%
-  ungroup() %>%
-  dplyr::select("country"| contains("case") | contains("death"))
-colnames(covid_prevac)[2:19] <- paste(colnames(covid_prevac)[2:19], "prevac", sep = "_") #add suffix
+Now let's merge all these vaccination dfs into one dataframe so we can create a VSI to predict!
 
-
-# # cases & deaths at 1 yr after date.first.vac
-# covid_1yr <- covid %>%
-#   group_by(country) %>%
-#   drop_na(date.first.vac) %>%
-#   subset(date == (date.first.vac %m+% months(12))) %>%
-#   dplyr::select("country"| contains("case") | contains("death"))
-# colnames(covid_1yr)[2:19] <- paste(colnames(covid_1yr)[2:19], "1yr", sep = "_") #add suffix
-# #covid_1yr <- covid_1yr[, which(colMeans(!is.na(covid_1yr)) > 0.5)] #remove cols with NA > 50%
-# #sum(is.na(covid_1yr$cumulative_total_cases))
-
-#peak rates up until vaccinations start
-covid_maxrate <- covid %>%
-  drop_na(date.first.vac) %>%
-  subset(date < date.first.vac) %>% 
-  dplyr::select("country" | contains(c("new", "daily"))) %>%
-  dplyr::select(-contains("vac")) %>% #drop vac cols
-  group_by(country) %>%
-  mutate_if(is.numeric, ~replace(., is.na(.), -1)) %>% #temporarily replace na's with -1
-  summarise_if(is.numeric, max) %>%
-  na_if(-1) %>% #set -1's back to na
-  rename(daily.new.cases.per.100 = daily_new_cases_per_hundred,
-         daily.new.deaths.per.100 = daily_new_deaths_per_hundred,
-         monthly.new.cases.per.100 = monthly_new_cases_per_hundred,
-         monthly.new.deaths.per.100 = monthly_new_deaths_per_hundred,
-         weekly.new.cases.per.100 = weekly_new_cases_per_hundred,
-         weekly.new.deaths.per.100 = weekly_new_deaths_per_hundred) #using . and _ separators to match WSD in case we want to pivot long later
-colnames(covid_maxrate)[2:13] <- paste(colnames(covid_maxrate)[2:13], "max", sep = "_") #add suffix
-
-#n_unique(covid_maxrate$country) #one country lost filtering to pre "2021-02-20"
-
-```
-
-
-Now let's merge all these vaccination dfs into one dataframe we can try to predict!
 First we'll dump all the vaccine-related stuff into one big dataframe here:
-
 ``` {r}
 #big df for vaccine info
 last.vac <- last.timepoint %>% dplyr::select("country"| contains("vacc"))#get just vaccine stuff from  last.timepoint
@@ -447,7 +429,7 @@ vac.dump <- vac.df_list %>% reduce(full_join, by='country') %>% as.data.frame() 
 #skim(vac.dump)
 ```
 
-Now we'll pair it down to keep only key variables that aren't redundant/highly correlated to run PCA on. NOTE: feel free to update/make changes to what's been kept!
+Now we'll pair it down to keep only key variables that will be meaningful in denoting a country's vaccination success. Variables were selected to be meaningful and non-redundant, and to have high completion rates. 
 
 ```{r}
 vac.sum <- vac.dump %>% dplyr::select(
@@ -457,83 +439,80 @@ vac.sum <- vac.dump %>% dplyr::select(
   daily.vac.per.mil_6moavg, #mean daily vaccinations in the first 6 months of administering
   people_vaccinated_per_hundred_last, #number of ppl vaccinated at last report (sometime in 2022)
   daily.vac.per.mil_max, #max number of vaccinations reported in a single day
+  total_vaccinations_per_hundred_last,# number of vaccine doses per hundred ppl at last report (sometime in 2022)
+  people_fully_vaccinated_per_hundred_last # number of people that received the full vaccine (typically 2 doses)
 )
 
-write.csv(vac.sum, "data/vaccination_summary.csv", row.names = FALSE)
+skim(vac.sum)
 ```
 
-
-Merging case & death dfs
-
-```{r}
-#df for cases and deaths
-last.case <- last.timepoint %>% dplyr::select("country", "date_last" | contains("case") | contains("death")) #get just cases & deaths stuff from  last.timepoint
-case.df_list <- list(covid_prevac, covid_maxrate, last.case) #covid_1yr
-case.sum.wide <- case.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
-#skim(case.sum.wide)
-```
-
-Merge all COVID summary data
-
-```{r}
-covid.df_list <- list(case.sum.wide, vac.dump)
-covid.all <- covid.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
-n_unique(covid.all$country)
-#skim(covid.all)
-```
-
-
-## Merge! Merge! Merge!
+Next we'll perform PCA to create a score to summarize these important vaccination metrics into a continuous rating, the VSI. 
 
 ``` {r}
-#merging ALL WSD predictors with cases, deaths & maxrate data for big, data-driven models!
-case.wsd.wide <- inner_join(case.sum.wide, wsd.sum.wide, by="country")
-#skim(case.wsd.wide)
+#drop NAs before PCA
+vac.sum.pca <- na.omit(vac.sum)
+nrow(vac.sum.pca)
 
-#merging WSD predictors with vaccination summary data
-vac.wsd.wide <- inner_join(vac.dump, wsd.sum.wide, by="country")
-#skim(vac.wsd.wide)
-
-#merging ALL WSD predictors with cases, deaths & maxrate data for big, data-driven models!
-case.wsd.wide <- inner_join(case.sum.wide, wsd.sum.wide, by="country")
-#skim(case.wsd.wide)
-
-#merging WSD predictors with latest COVID data (~March 17, 2022)
-mar22.wsd.wide <- inner_join(last.timepoint, wsd.sum.wide, by="country")
-#skim(mar22.wsd.wide)
-
-#merging everything!
-wsd.covid.all <- inner_join(covid.all, wsd.sum.wide, by="country")
-#skim(wsd.covid.all)
+vax.pca3 <- prcomp(x = vac.sum.pca[,-1], scale. = TRUE, center = TRUE)
+vax.pca3$rotation
+summary(vax.pca3) # adding 2 more vars brings the proportion of variance of PC1 from 67 to 73%, so keeping those in here
+plot(summary(vax.pca3)$importance[2, ],  # PVE
+     ylab="PVE",
+     xlab="Number of PC's",
+     pch = 16, 
+     main="Scree Plot of PVE for Vaccination variables")
+# Following the elbow rule, the first PC1 clearly explains a sufficient amount of variance. We will thus keep the first PC. 
+vac.sum.with.VSI <- vac.sum.pca # copy the data
+vac.sum.with.VSI$VSI <- -vax.pca3$x[,1] # append the VSI (inverse signed PC1 scores), where a positive nb means a country was good at getting people vaccinated
 ```
 
-Any of the above can be recombined/merged further or pivoted long.
+PC1 explains 73% of the variance and is therefore an excellent index indicating how well a country did at vaccinating their population; we'll take the inverse so that a higher VSI indicated a . We are calling it the "Vaccination Success Index", i.e. `VSI`. 
 
-predict:
-days to vaccine access
-days from vaccine access to 50% ppl
-% ppl vaccinated at march 2022 (absolute counts and binned)
-doses administered at march 2022 (absolute counts and binned)
+Let's see how the VSI loadings are distributed across countries: 
 
-## Computing Vaccination Status Index
+```{r}
+# numerical summary
+skim(vac.sum.with.VSI)
+# plot sorted VSI scores
+vac.sum.with.VSI %>%
+  ggplot(aes(x = reorder(country, VSI), 
+               y = VSI, fill = country)) +
+    geom_bar(show.legend = FALSE, stat = "identity") +
+    xlab("Country") +
+    ylab("VSI") + 
+    ggtitle("Vaccination Success Index score") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 60, hjust=1))
+ggplot(vac.sum.with.VSI, aes(x = reorder(country, -VSI), y = VSI, fill = country)) + 
+  geom_bar(stat = "identity")
+```
 
-**add Joelle's PCA here**
+We can see that Somalia appears to be the country with the lowest VSI, and Cuba appears to have the highest VSI. 
+
+
+## Finalizing Dataset
+
+We'll write our final dataset by joining our WSD predictors, prevax COVID case & death predictors, and VSI. 
+
+```{r}
+#merging WSD predictors with cases, deaths & maxrate data
+case.wsd.wide <- inner_join(covid.predict, wsd.sum.wide, by="country") #predictors only
+#skim(case.wsd.wide)
+
+#adding in VSI
+yval <- vac.sum.with.VSI %>% dplyr::select("country", "VSI")
+final.df <- inner_join(case.wsd.wide, yval,  by=("country"))
+#names(final.df)
+n_unique(final.df$country)
+
+##WRITE CSVs FOR MODELING##
+#write.csv(case.wsd.wide, "data/case.wsd.wide-predictors.csv", row.names = FALSE)
+#write.csv(final.df, "data/final.df.csv", row.names = FALSE)
+```
 
 ## Modeling
 
-Predicting VSI scores (from `data/VaccinationSucessIndexData-New.csv`) using `case.wsd.wide`, which includes all WSD summary outputs and COVID case/death info up until vaccination started in each country.
-
-```{r}
-#read in
-new.data.with.VSI <- read.csv("data/VaccinationSucessIndexData-New.csv")
-
-#adding in PC1
-yval <- new.data.with.VSI %>% dplyr::select("country", "VSI")
-df <- inner_join(case.wsd.wide, yval,  by=("country"))
-#names(df)
-n_unique(df$country)
-```
-
+Predicting inverse signed PC1 scores (from `data/VaccinationSucessIndexData-New.csv`) using `case.wsd.wide`.
 
 Subdividing our dataset of 108 countries into `data.train`(60%), `data.test` (20%), and `data.val` (20%) 
 
@@ -587,4 +566,202 @@ data.val_diff <- data.val %>% dplyr::select(-c(contains("_2018") | contains("_3y
 data.train.test_diff <- data.train.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
 ```
 
+
+### Linear Models
+
+Building a couple linear models:
+
+Picking variables for backward selection:
+* `Continent`
+* `Electricity.Access_3yr` - since this would be related to infrastructure used for vaccination
+* `cumulative_total_cases_per_hundred_prevac` - index of disease prevalence
+* `cumulative_total_deaths_per_hundred_prevac` - index of disease severity
+* `weekly.new.deaths.per.100_max` - max weekly death rate
+* `GDP.PerCapita.Current_2018` - latest GDP per capita
+* `UrbanPopulation.Prop_3yr` - how urban is pop
+* `LifeExpenctancy_rel.diff` - change in health metric over time (tracks increase or decrease in pop health)
+* `Trade.GDP_3yr` - see how much of economy is based in trade
+* `CompulsoryEducationDurationYears_3yr` - level of education
+
+Couple forward selections:
+```{r}
+fit1 <- lm(VSI ~ GDP.PerCapita.Current_2018, data.train)
+Anova(fit1)
+fit2 <- update(fit1, .~. + UrbanPopulation.Prop_3yr)
+Anova(fit2)
+fit3 <- update(fit2, .~. + cumulative_total_deaths_per_hundred_prevac)
+Anova(fit3) #cumulative_total_deaths_per_hundred_prevac not significant
+
+
+#try interactions
+fit4 <- lm(VSI ~ GDP.PerCapita.Current_2018 + Continent + GDP.PerCapita.Current_2018*Continent, data.train)
+Anova(fit4)
+
+fit5 <- lm(VSI ~ GDP.PerCapita.Current_2018 + weekly.new.deaths.per.100_max + GDP.PerCapita.Current_2018*weekly.new.deaths.per.100_max, data.train)
+Anova(fit5)
+```
+
+
+### Regsubsets
+
+Running regsubsets:
+
+```{r}
+#subset data.train & data.test together since Cp will approx test error
+data.fit1 <- data.train.test %>% dplyr::select(VSI, cumulative_total_cases_per_hundred_prevac, cumulative_total_deaths_per_hundred_prevac, weekly.new.deaths.per.100_max, Continent, Electricity.Access_3yr, GDP.PerCapita.Current_2018, UrbanPopulation.Prop_3yr, LifeExpenctancy_rel.diff, Trade.GDP_3yr, CompulsoryEducationDurationYears_3yr)
+
+fit1 <- regsubsets(VSI ~., data.fit1 , nvmax=25, method="exhaustive")
+f.e <- summary(fit1)
+opt.size <- which.min(f.e$cp) #pick size with lowest cp
+fit.exh.var <- f.e$which # logic indicators which variables are in
+colnames(fit.exh.var)[fit.exh.var[opt.size,]][-1] # output variables selected
+fit2 <- lm(VSI ~ Continent+Electricity.Access_3yr+GDP.PerCapita.Current_2018+CompulsoryEducationDurationYears_3yr, data.fit1)    # fit with selected variables
+Anova(fit2) 
+#note - not all significant but should stick with model minimizing Cp, right?
+
+#check assumptions - NOTE - not great!
+par(mfrow=c(1,2))
+plot(fit2, 1) #linearity & homoscedasticity
+plot(fit2, 2) #normality
+```
+
+
+### Neural Nets
+
+Attempting neural nets:
+
+**may need to set dummy vars for categorical**
+
+Defining neural nets -   
+  + normalization
+  + two layers with 8 neurons in each layer
+  + Activation function is `Relu`
+  + Output layer is `linear`
+  
+Resources used:
+https://www.tensorflow.org/tutorials/keras/regression
+https://tensorflow.rstudio.com/reference/keras/layer_batch_normalization/
+https://machinelearningmastery.com/how-to-choose-loss-functions-when-training-deep-learning-neural-networks/
+https://stackoverflow.com/questions/37232782/nan-loss-when-training-regression-network
+https://rstudio-pubs-static.s3.amazonaws.com/344055_0c737f77c0ef4e36b6865cb843a7bb4a.html
+https://keras.io/api/metrics/regression_metrics/
+
+Imputing & setting x and y data as matrixes
+```{r}
+#skim(data.train.test)
+#need to impute over NAs, using missForest for now
+data.nn.train <- data.train.test %>% 
+  mutate(across(where(is_character),as_factor)) %>% 
+  dplyr::select(-c(Country.Code, country)) %>% #remove country
+  select_if(funs(!is.Date(.)))
+data.nn.trainimp <- missForest(data.nn.train, variablewise = TRUE)
+data.nn.trainimp$ximp
+data.nn.trainimp$OOBerror #high :(
+
+#select only cols with missForest OOB MSE below 25%
+good.predict <- which(data.nn.trainimp$OOBerror < 0.25) %>% unname()
+nn.trainimp <- data.nn.trainimp$ximp[, c(good.predict)]
+setdiff(names(data.nn.train), names(nn.trainimp)) #see what cols were lost
+# dim(nn.trainimp) #imputing gives us 108 cols to work with
+# dim(data.nn.train[ , colSums(is.na(data.nn.train)) == 0]) #as opposed to dropping all NA cols, which only gives us 67
+# dim(na.omit(data.nn.train)) #or dropping rows with NAs, which would mean only 17 countries
+
+## training input/y: need to be matrix/vector
+data_xtrain <- nn.trainimp[, -99] %>% select_if(is.numeric)  #dim(data3_xtrain), remove y ~may need to set dummy vars - just grabbing numeric for now to test!
+data_ytrain <- nn.trainimp[, 99]   # find y
+data_xtrain <- as.matrix(data_xtrain) # make sure it it is a matrix
+data_ytrain <- as.matrix(data_ytrain) # make sure it it is a matrix
+
+## validation input/y
+data_xval <- data.val[, -204]   #dim(data3_xtrain), remove y
+data_yval <- data.val[, 204]   # find y
+data_xval <- as.matrix(data_xval) # make sure it it is a matrix
+data_yval <- as.matrix(data_yval) # make sure it it is a matrix
+```
+cumulative_total_deaths_last
+
+Build and compile model
+```{r}
+# set seed for keras
+set_random_seed(10)
+
+#build model
+p <- dim(data_xtrain)[2] # number of input variables (columns)
+model <- keras_model_sequential() %>%
+  layer_batch_normalization(input_shape = c(p)) %>% #recommended, not certain it's correct
+  layer_dense(units = 12, activation = "relu") %>%
+  # layer_dropout(0.25) %>% # drop 25% - https://stackoverflow.com/questions/37232782/nan-loss-when-training-regression-network
+  layer_dense(units = 12, activation = "relu") %>%  
+  # layer_dropout(0.25) %>% # drop 25%
+  layer_dense(units = 1, activation = "linear") # output = 1 unit for linear(?) regression
+print(model)
+
+# #compile the Model (based on https://www.tensorflow.org/tutorials/keras/regression)
+# model %>% compile(
+#   optimizer = "adam",
+#   loss = "mean_squared_error",
+#   metrics = list("mean_squared_error"),
+# )
+
+#compile model (based on https://tensorflow.rstudio.com/tutorials/beginners/basic-ml/tutorial_basic_regression/)
+model %>%
+  compile(
+    loss = "mse",
+    optimizer = optimizer_rmsprop(),
+    metrics = c("accuracy")
+  )
+```
+
+Fitting model
+
+```{r}
+set_random_seed(10)
+fit.nn <- model %>% fit(
+  data_xtrain,
+  data_ytrain,
+  epochs = 100,
+  batch_size = 20,
+  validation_split = .15 # set 15% of the data_xtrain, data_ytrain as the validation data
+)
+
+plot(fit.nn)
+```
+
+# Appendix
+
+## Unused Dataframes
+Stuff that we output but wasn't used for modeling - may be useful for EDA or post-hoc analyses:
+
+```{r, eval=FALSE}
+#get just cases & deaths stuff from  last.timepoint (mar 2022 covid cases and death)
+last.case <- last.timepoint %>% dplyr::select("country", "date_last" | contains("case") | contains("death")) 
+
+# cases & deaths at 1 yr after date.first.vac
+covid_1yr <- covid %>%
+  group_by(country) %>%
+  drop_na(date.first.vac) %>%
+  subset(date == (date.first.vac %m+% months(12))) %>%
+  dplyr::select("country"| contains("case") | contains("death"))
+colnames(covid_1yr)[2:19] <- paste(colnames(covid_1yr)[2:19], "1yr", sep = "_") #add suffix
+#covid_1yr <- covid_1yr[, which(colMeans(!is.na(covid_1yr)) > 0.5)] #remove cols with NA > 50%
+#sum(is.na(covid_1yr$cumulative_total_cases))
+
+#merging all COVID data 
+covid.df_list <- list(covid_prevac, covid_maxrate, last.case, vac.dump, covid_1yr)
+covid.all <- covid.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
+n_unique(covid.all$country)
+skim(covid.all)
+
+#merging WSD predictors with vaccination summary data
+vac.wsd.wide <- inner_join(vac.dump, wsd.sum.wide, by="country")
+#skim(vac.wsd.wide)
+
+#merging WSD predictors with latest COVID data (~March 17, 2022)
+mar22.wsd.wide <- inner_join(last.timepoint, wsd.sum.wide, by="country")
+#skim(mar22.wsd.wide)
+
+#merging everything!
+wsd.covid.all <- inner_join(covid.all, wsd.sum.wide, by="country")
+#skim(wsd.covid.all)
+```
 
