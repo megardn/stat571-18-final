@@ -29,7 +29,7 @@ if(!require("pacman")) install.packages("pacman")
 
 pacman::p_load(tidyverse, dplyr, ggplot2, ggthemes, data.table, lubridate,
                GGally, RColorBrewer, ggsci, plotROC, usmap,
-               plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car, keras, neuralnet, tensorflow, missForest, corrplot)
+               plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car, keras, neuralnet, tensorflow, missForest, corrplot, tree, randomForest)
 ```
 
 
@@ -835,7 +835,82 @@ summary(fit.1se.lm)
 
 LASSO results using the `wsd.avg.vsi` suggest the same variables found with linear models. 
 
-## Random Forests
+## Trees & Random Forests
+
+Now, we will try to use tree based methods (single decision tree and random forest) to see if we can predict a country's vaccination success based on social and economic measures prior to the pandemic, as well as COVID case data prior to the start of vaccination campaigns. 
+
+First, we will try using a single regression tree. 
+
+THIS CHUNK REMOVES BAD VARIABLES - FEEL FREE TO MOVE IT ELSEWEHERE 
+```{r}
+cleaned.data.train <- dplyr::select(data.train.nocor, -contains(c("_rel.diff", "_diff", "_2018", "_3yr")))
+skimr::skim(cleaned.data.train)
+```
+
+
+```{r, fig.height=6, fig.width=15}
+single.tree1 <- tree(VSI ~ ., cleaned.data.train, control=tree.control(nobs=nrow(cleaned.data.train),
+                                              minsize=4,     
+                                              mindev=0.009))
+plot(single.tree1)
+text(single.tree1, pretty = 1)
+title("Single Tree | VSI Prediction")
+```
+
+Now that we've generated our tree, let's see how well it does at predicting unseen data. 
+
+```{r}
+tree.test.prediction <- predict(single.tree1, newdata = data.test)
+tree.mse <- mean((data.test$VSI - tree.test.prediction)^2) # calculate mean squared prediction error
+tree.mse
+```
+
+Our mean squared prediction error using a single tree is `tree.mse`! That is quite high, though not surprising, given the complexity of the question. Now, let's try something more robust. While an advantage of using a single tree is that we can see which variables are diving our prediction, Random Forest may provide better results at the cost of interpretability.  
+
+Now we will tune and train a Random Forest model. 
+
+Let us tune the parameters mtry (number of variables to sample) and ntree (number of trees to use). First, we will tune ntree. 
+
+```{r}
+set.seed(1) # for reproducibility, we set the seed
+fit.1.rf <- randomForest(VSI~., cleaned.data.train, mtry=6, ntree=500)
+plot(fit.1.rf$mse, xlab="Number of Trees", col="red", ylab="OOB MSE") 
+title(main = "OOB Test Error by Number of Trees Used")
+```
+Based on out of bag error, it seems that 100 trees is sufficient. Now, let's tune mtry. 
+
+```{r}
+set.seed(10)
+max.mtry <- ncol(cleaned.data.train)  
+error.p <- 1:max.mtry 
+for (p in 1:max.mtry)  
+{
+  rf.temp <- randomForest(VSI~., cleaned.data.train, mtry=p, ntree=100)
+  error.p[p] <- rf.temp$mse[100]  
+}
+plot(1:max.mtry, error.p,
+     main = "Testing Errors of mtry with 100 trees",
+     xlab="mtry",
+     ylab="OOB MSE")
+lines(1:max.mtry, error.p)
+```
+An mtry of around 20 seems to provide good results, so we will use this as our parameter. Now, we train the final Random Forest model based on our tuned parameters.
+
+```{r}
+set.seed(2) 
+fit.final.rf <- randomForest(VSI~., cleaned.data.train, mtry=20, ntree=100)
+plot(fit.final.rf)
+```
+
+Due to the bootstrapping of samples done by Random Forest, we could use our OOB error as testing error, but for the sake of consistency, we will use our testing dataset to calculate Mean Squared Prediction Error. 
+
+```{r}
+rf.test.prediction <- predict(fit.final.rf, newdata = data.test)
+rf.mse <- mean((data.test$VSI - rf.test.prediction)^2) # calculate mean squared prediction error
+rf.mse
+```
+
+Our final Testing MSE from the Random Forest model is `rf.mse`. This is much better than the single tree. While our final testing error is still somewhat high, Random Forest can achieve a somewhat accurate estimate of a nation's COVID vaccination success, given social and economic factors prior to the pandemic, and COVID case data prior to the start of vaccination campaigns. 
 
 ## Neural Networks
 
