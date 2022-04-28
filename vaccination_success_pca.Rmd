@@ -63,10 +63,16 @@ vax.summary.new <- na.omit(vax.summary.new)
 nrow(vax.summary.new)
 vax.pca3 <- prcomp(x = vax.summary.new[,-1], scale. = TRUE, center = TRUE)
 vax.pca3$rotation
-summary(vax.pca3)
+summary(vax.pca3) # adding 2 more vars brings the proportion of variance of PC1 from 67 to 73%, so keeping those in here
+plot(summary(vax.pca3)$importance[2, ],  # PVE
+     ylab="PVE",
+     xlab="Number of PC's",
+     pch = 16, 
+     main="Scree Plot of PVE for Vaccination variables")
+# Following the elbow rule, the first PC1 clearly explains a sufficient amount of variance. We will thus keep the first PC. 
 
 new.data.with.VSI <- vax.summary.new # copy the data
-new.data.with.VSI$VSI <- -vax.pca3$x[,1] # append the VSI (inverse signed PC1 scores)
+new.data.with.VSI$VSI <- -vax.pca3$x[,1] # append the VSI (inverse signed PC1 scores), where a positive nb means a country was good at getting people vaccinated
 
 write.csv(new.data.with.VSI, "data/VaccinationSucessIndexData-New.csv", row.names = FALSE)
 ```
