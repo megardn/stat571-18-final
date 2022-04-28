@@ -214,22 +214,10 @@ Merge into one wide wsd dataframe:
 
 ```{r}
 # one predictor dataframe to rule them all
-wsd.df_list <- list(wsd.2018, wsd.3yr, wsd.avg, wsd.change) #dfs to merge
+wsd.df_list <- list(wsd.change, wsd.3yr, wsd.2018, wsd.avg) #dfs to merge, ordered purposefully for removing correlated predictors later on!
 wsd.sum.wide <- wsd.df_list %>% reduce(full_join, by='country') %>%
   dplyr::select(-c(WorldRegion.x, WorldRegion.y))#join
 #skim(wsd.sum.wide)
-
-#here's a long version if you want it
-wsd.sum.long <- wsd.sum.wide %>%
-  dplyr::select(-WorldBankIncomeClass_rel.diff, -RegimeType_rel.diff) %>%
-  # mutate(WorldBankIncomeClass_diff=as.factor(WorldBankIncomeClass_diff),
-  #        RegimeType_diff=as.factor(RegimeType_diff)) %>%
-  pivot_longer(c(contains("_")), 
-    names_to = c(".value", "type"), 
-    names_sep = "_", 
-    values_drop_na = TRUE
-  )
-
 head(wsd.sum.wide)
 ```
 
@@ -322,7 +310,7 @@ Finally we'll merge these COVID predictors into a single dataframe.
 
 ```{r}
 #df for cases and deaths
-case.df_list <- list(covid_prevac, covid_maxrate)
+case.df_list <- list(covid_maxrate, covid_prevac) #ordered to prioritize when removing correlated vars
 covid.predict <- case.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
 #skim(covid.predict)
 ```
@@ -544,33 +532,6 @@ data.val <- as.data.frame(df.pred[idx_val,])
 data.train.test <- as.data.frame(df.pred[-idx_val,]) #for methods that don't require separate test set
 ```
 
-Here's code to subdivide the train/test dfs based on what type of WSD predictors they include (i.e. so you can easily train a model only on the WSD 17-yr averages, plus static measures and covid cases/deaths). We should also pair down on the covid case/death variables in here!
-
-```{r}
-# WSD 2018
-data.train_2018 <- data.train %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
-data.test_2018 <- data.test %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
-data.val_2018 <- data.val %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
-data.train.test_2018 <- data.train.test %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
-
-# 3 year average
-data.train_3yr <- data.train %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
-data.test_3yr <- data.test %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
-data.val_3yr <- data.val %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
-data.train.test_3yr <- data.train.test %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
-
-# 17 year average
-data.train_avg <- data.train %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
-data.test_avg <- data.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
-data.val_avg <- data.val %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
-data.train.test_avg <- data.train.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
-
-#17 year change
-data.train_diff <- data.train %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
-data.test_diff <- data.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
-data.val_diff <- data.val %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
-data.train.test_diff <- data.train.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
-```
 
 Let's now see how various socioeconomic, sustainability and political factors may be associated with VSI. To develop the most accurate prediction, we will compare a range of methods going from supervised to unsupervised:
 
@@ -595,7 +556,7 @@ To address this, we propose two different approaches:
   + Political and country development factors
   + Full model: we combine the most relevant factors into a comprehensive model
   
-* In the second approach, we are running more inclusive models on distinct `WSD` summary measures (2018 data, 3 year average data, etc.) and `COVID` summary measures to determine which summary measures may be most informative in predicting `VSI`. 
+* In the second approach, we remove highly colinear WSD and COVID predictors (abs value > 0.95) before running more inclusive, data-driven models using LASSO. 
 
 
 ### Thematic linear models
@@ -658,7 +619,7 @@ summary(lm.covid.1)
 #LOL only the intercept is significant, going to do some forward selection
 lm.covid.death <- lm(VSI ~ cumulative_total_deaths_per_hundred_prevac, data = data.train)
 summary(lm.covid.death)
-lm.covid.f2 <- update(lm.covid.f, .~. + cumulative_total_cases_per_hundred_prevac)
+lm.covid.f2 <- update(lm.covid.death, .~. + cumulative_total_cases_per_hundred_prevac)
 summary(lm.covid.f2) #tried a few different options, adding more COVID vars don't seem to be predictive
 Anova(lm.covid.f2)
 
@@ -667,14 +628,14 @@ lm.covid.case <- lm(VSI ~ cumulative_total_cases_per_hundred_prevac, data = data
 summary(lm.covid.case)
 
 
-#joelle's models:
-lm.covid.1.refined <- lm(VSI ~ cumulative_total_deaths_per_hundred_prevac +
-                           cumulative_total_cases_per_hundred_last +
-                           monthly_new_deaths_per_hundred_last, data = data.train)
-summary(lm.covid.1.refined)
-
-lm.covid.1.refined.2 <- lm(VSI ~ cumulative_total_cases_per_hundred_last , data = data.train)
-summary(lm.covid.1.refined.2)
+# #joelle's models:
+# lm.covid.1.refined <- lm(VSI ~ cumulative_total_deaths_per_hundred_prevac +
+#                            cumulative_total_cases_per_hundred_last +
+#                            monthly_new_deaths_per_hundred_last, data = data.train)
+# summary(lm.covid.1.refined)
+# 
+# lm.covid.1.refined.2 <- lm(VSI ~ cumulative_total_cases_per_hundred_last , data = data.train)
+# summary(lm.covid.1.refined.2)
 ```
 
 **corrected inputs, only intercept is significant now**
@@ -698,7 +659,6 @@ Selected variables:
 * `IndividualsUsingInternet_2018` - latest internet usage 
 
 ```{r}
-
 # build political & country development index model
 lm.political.1 <- lm(VSI ~ WorldRegion +
                    Electricity.Access_2018 +
@@ -783,389 +743,12 @@ plot_VSI_lifexp
 ```
 
 
-### Selecting the "best" WSD dataset 
+## Removing Highly Correlated Variables
 
-In this second approach, we determine which of the created world sustainability measures (`WSD`) and `COVID` measures are most informative in relation to `VSI`. We try the same models on wsd data from 2018, wsd over the last 3 years, wsd average and wsd change between 2001 and 2018 to see which data best explains VSI. 
-
-
-#### WSD - 2018
-
-Let's first look at summary `WSD` measures from 2018 (i.e., the latest reported measures). 
-
-```{r fig.width=10, fig.height=10}
-
-# latest wsd data (from 2018)
-# merge VSI to the wsd data
-# wsd.2018.vsi <- inner_join(new.data.with.VSI[c("country", "VSI")], wsd.2018, by = "country")
-# nrow(wsd.2018.vsi) # countries left after merge
-
-# create correlation plot to see whether some variables are highly correlated (not tolerated by lm)
-data.train_2018 %>% 
-  select(-VSI) %>% # remove outcome variable as we want to highlight corrs among predictors only
-  select(-contains(c("deaths", "cases"))) %>% # focusing on WSD measures only
-  select_if(., is.numeric) %>%
-  cor(., use = "complete.obs") %>%
-  corrplot(method = "color", 
-           type = "upper", order = "hclust", 
-           addCoef.col = "black", # Add coefficient of correlation
-           tl.col="black", tl.srt = 45, #Text label color and rotation
-           # hide correlation coefficient on the principal diagonal
-           diag = FALSE 
-           )
-# find names of highly correlated variables
-correlations <- data.train_2018 %>% 
-  select(-VSI) %>%
-  select(-contains(c("deaths", "cases"))) %>% #remove covid vars
-  select_if(., is.numeric) %>%
-  cor(., use = "complete.obs")
-correlations[correlations < 0.8 | correlations == 1] <- ""
-correlations
-
-# some variables are perfectly or almost perfectly correlated. We will trim variables that have correlations over 0.8 to avoid multi-collinearity. 
-data.train_2018.sub <- data.train_2018 %>%
-  select(-c(WorldRegion, # not involved in variable selection for the 2018 dataset
-            Electricity.Access_2018, # LifeExpenctancy_2018 corr 0.83
-            ImportGoodsServices.GDP_2018, # ExportGoodsServices.GDP_2018 corr 0.92
-            Trade.GDP_2018, # ExportGoodsServices.GDP_2018 0.98
-            TotalNaturalResources.GDP_2018, # SavingNaturalResourceDepletion_2018 corr 0.86
-            GrossNationalExpenditure.GDP_2018, # FinalConsumptionExpenditure.GDP_2018 corr 0.88
-            RuralPopulation.Prop_2018 # UrbanPopulation.Prop_2018 corr 1
-            )) %>%
-  select(-contains(c("deaths", "cases"))) # focusing on WSD measures only
-
-
-# # trying a few models with variables that should make sense...
-# internet use
-lm.2018.1 <- lm(VSI ~ IndividualsUsingInternet_2018, data = data.train_2018.sub)
-summary(lm.2018.1)
-# internet significantly impacts VSI
-
-# regime type
-lm.2018.2 <- lm(VSI ~ RegimeType_2018, data = data.train_2018.sub)
-summary(lm.2018.2)
-# regime type does not significantly impact VSI
-
-# urban population percentage
-lm.2018.3 <- lm(VSI ~ UrbanPopulation.Prop_2018, data = data.train_2018.sub)
-summary(lm.2018.3)
-# urban population significantly impacts VSI
-
-# years of compulsory education
-lm.2018.4 <- lm(VSI ~ CompulsoryEducationDurationYears_2018, data = data.train_2018.sub)
-summary(lm.2018.4)
-# compulsory education does not significantly impact VSI
-
-# GDP per capita
-lm.2018.5 <- lm(VSI ~ GDP.PerCapita.Current_2018, data = data.train_2018.sub)
-summary(lm.2018.5)
-# GDP per capita significantly impacts VSI
-
-# Life expectancy
-lm.2018.6 <- lm(VSI ~ LifeExpenctancy_2018, data = data.train_2018.sub)
-summary(lm.2018.6)
-# Life expectancy  significantly impacts VSI
-
-# model with all significant variables
-lm.2018.7 <- lm(VSI ~ LifeExpenctancy_2018 +
-                  UrbanPopulation.Prop_2018 + 
-                  GDP.PerCapita.Current_2018 +
-                  IndividualsUsingInternet_2018, 
-               data = data.train_2018.sub)
-summary(lm.2018.7)
-# only Life Expectancy is useful here, It seems like this variable may be sufficient at predicting VSI. 
-
-# fit model (without any country/continent info)
-lm.2018.full <- lm(VSI ~ ., data = data.train_2018.sub)
-summary(lm.2018.full)
-
-# only LifeExpenctancy_2018 shows a significant effect on VSI. Trying a reduced model with only this variable
-lm.2018.red <- lm(VSI ~ IndividualsUsingInternet_2018, data = data.train_2018.sub)
-summary(lm.2018.red)
-anova(lm.2018.full, lm.2018.red)
-
-```
-
-Models using single predictors indicate that `LifeExpenctancy_2018`, `UrbanPopulation.Prop_2018`, `GDP.PerCapita.Current_2018` and `IndividualsUsingInternet_2018` each have significant effects on `VSI`. However, in a full model including all 2018 variables, `IndividualsUsingInternet_2018` is the only significant variable. In addition, there is no evidence to suggest that the full model better explains the data than the reduced model (p=0.07). Thus, internet usage alone is sufficient to explain `VSI` in this dataset. 
-
-#### WSD - 3 year average
-
-
-Let's now look at summary `WSD` measures averaged over a 3 year period from 2015-2018. 
-
-```{r fig.width=10, fig.height=10}
-
-# create correlation plot to see whether some variables are highly correlated (not tolerated by lm)
-data.train_3yr %>% 
-  select(-VSI) %>% # remove outcome variable as we want to highlight corrs among predictors only
-  select(-contains(c("deaths", "cases"))) %>% # focusing on WSD measures only
-  select_if(., is.numeric) %>%
-  cor(., use = "complete.obs") %>%
-  corrplot(method = "color", 
-           type = "upper", order = "hclust", 
-           addCoef.col = "black", # Add coefficient of correlation
-           tl.col="black", tl.srt = 45, #Text label color and rotation
-           # hide correlation coefficient on the principal diagonal
-           diag = FALSE 
-           )
-# find names of highly correlated variables
-correlations <- data.train_3yr %>% 
-  select(-VSI) %>%
-  select(-contains(c("deaths", "cases"))) %>%
-  select_if(., is.numeric) %>%
-  cor(., use = "complete.obs")
-correlations[correlations < 0.8 | correlations == 1] <- ""
-correlations
-
-# some variables are perfectly or almost perfectly correlated. We will trim variables that have correlations over 0.8 to avoid multi-collinearity. 
-data.train_3yr.sub <- data.train_3yr %>%
-  select(-c(date_last, WorldRegion, # not involved in variable selection for the 3yr dataset
-            Electricity.Access_3yr, # LifeExpenctancy corr
-            ImportGoodsServices.GDP_3yr, # ExportGoodsServices.GDP corr
-            Trade.GDP_3yr, # ExportGoodsServices.GDP
-            TotalNaturalResources.GDP_3yr, # SavingNaturalResourceDepletion
-            GrossNationalExpenditure.GDP_3yr, # FinalConsumptionExpenditure.GDP
-            RuralPopulation.Prop_3yr # UrbanPopulation.Prop corr
-            )) %>%
-  select(-contains(c("deaths", "cases"))) # focusing on WSD measures only
-
-# # trying a few models with variables that should make sense...
-# internet use
-lm.3yr.1 <- lm(VSI ~ IndividualsUsingInternet_3yr, data = data.train_3yr.sub)
-summary(lm.3yr.1)
-# internet significantly impacts VSI
-
-# regime type
-lm.3yr.2 <- lm(VSI ~ RegimeType_3yr, data = data.train_3yr.sub)
-summary(lm.3yr.2)
-# regime type does not significantly impact VSI
-
-# urban population percentage
-lm.3yr.3 <- lm(VSI ~ UrbanPopulation.Prop_3yr, data = data.train_3yr.sub)
-summary(lm.3yr.3)
-# urban population significantly impacts VSI
-
-# years of compulsory education
-lm.3yr.4 <- lm(VSI ~ CompulsoryEducationDurationYears_3yr, data = data.train_3yr.sub)
-summary(lm.3yr.4)
-# compulsory education does not significantly impact VSI
-
-# GDP per capita
-lm.3yr.5 <- lm(VSI ~ GDP.PerCapita.Current_3yr, data = data.train_3yr.sub)
-summary(lm.3yr.5)
-# GDP per capita significantly impacts VSI
-
-# Life expectancy
-lm.3yr.6 <- lm(VSI ~ LifeExpenctancy_3yr, data = data.train_3yr.sub)
-summary(lm.3yr.6)
-# Life expectancy  significantly impacts VSI
-
-# model with all significant variables
-lm.3yr.7 <- lm(VSI ~ LifeExpenctancy_3yr +
-                  UrbanPopulation.Prop_3yr + 
-                  GDP.PerCapita.Current_3yr +
-                  IndividualsUsingInternet_3yr, 
-               data = data.train_3yr.sub)
-summary(lm.3yr.7)
-# only Life Expectancy is useful here, It seems like this variable may be sufficient at predicting VSI. 
-
-# fit model (without any country/continent info)
-lm.3yr.full <- lm(VSI ~ ., data = data.train_3yr.sub)
-summary(lm.3yr.full)
-
-# only LifeExpenctancy_3yr shows a significant effect on VSI. Trying a reduced model with only this variable
-lm.3yr.red <- lm(VSI ~ IndividualsUsingInternet_3yr + Adj.SavingNetCO2Damage_3yr, data = data.train_3yr.sub)
-summary(lm.3yr.red)
-anova(lm.3yr.full, lm.3yr.red)
-
-```
-
-Models using single predictors indicate that `LifeExpenctancy_3yr`, `UrbanPopulation.Prop_3yr`, `GDP.PerCapita.Current_3yr` and `IndividualsUsingInternet_3yr` each have significant effects on `VSI`. However, in a full model including all 3 year average variables, `IndividualsUsingInternet_3yr` and `Adj.SavingNetCO2Damage_3yr` are the only significant variables. In addition, there is no evidence to suggest that the full model better explains the data than the reduced model (p=0.07). Thus, internet usage and adjusted savings (a measure that monitors whether savings and investment in a country compensate for depreciation of natural and physical capital) alone are sufficient to explain `VSI` in this dataset. 
-
-
-#### WSD - 17 year average
-
-
-Let's now look at summary `WSD` measures averaged over a 3 year period from 2015-2018. 
-
-```{r fig.width=10, fig.height=10}
-
-# create correlation plot to see whether some variables are highly correlated (not tolerated by lm)
-data.train_avg %>% 
-  select(-VSI) %>% # remove outcome variable as we want to highlight corrs among predictors only
-  select(-contains(c("deaths", "cases"))) %>% # focusing on WSD measures only
-  select_if(., is.numeric) %>%
-  cor(., use = "complete.obs") %>%
-  corrplot(method = "color", 
-           type = "upper", order = "hclust", 
-           addCoef.col = "black", # Add coefficient of correlation
-           tl.col="black", tl.srt = 45, #Text label color and rotation
-           # hide correlation coefficient on the principal diagonal
-           diag = FALSE 
-           )
-# find names of highly correlated variables
-correlations <- data.train_avg %>% 
-  select(-VSI) %>%
-  select(-contains(c("deaths", "cases"))) %>%
-  select_if(., is.numeric) %>%
-  cor(., use = "complete.obs")
-correlations[correlations < 0.8 | correlations == 1] <- ""
-correlations
-
-# some variables (same as 2018 + 1 variable, GDP per capita) are perfectly or almost perfectly correlated. We will trim variables that have correlations over 0.8 to avoid multi-collinearity. 
-data.train_avg.sub <- data.train_avg %>%
-  select(-c(date_last, nYears_avg, WorldRegion,  # not involved in variable selection for the avg dataset
-            Electricity.Access_avg, # LifeExpenctancy
-            TotalNaturalResources.GDP_avg, # SavingNaturalResourceDepletion
-            ImportGoodsServices.GDP_avg, # ExportGoodsServices.GDP
-            Trade.GDP_avg, # ExportGoodsServices.GDP
-            GrossNationalExpenditure.GDP_avg, # FinalConsumptionExpenditure.GDP
-            RuralPopulation.Prop_avg, # UrbanPopulation.Prop
-            GDP.PerCapita.Current_avg # IndividualsUsingInternet
-            )) %>%
-  select(-contains(c("deaths", "cases"))) # focusing on WSD measures only
-
-# # trying a few models with variables that should make sense...
-# internet use
-lm.avg.1 <- lm(VSI ~ IndividualsUsingInternet_avg, data = data.train_avg.sub)
-summary(lm.avg.1)
-# internet significantly impacts VSI
-
-# regime type
-lm.avg.2 <- lm(VSI ~ RegimeType_avg, data = data.train_avg.sub)
-summary(lm.avg.2)
-# regime type does not significantly impact VSI
-
-# urban population percentage
-lm.avg.3 <- lm(VSI ~ UrbanPopulation.Prop_avg, data = data.train_avg.sub)
-summary(lm.avg.3)
-# urban population significantly impacts VSI
-
-# years of compulsory education
-lm.avg.4 <- lm(VSI ~ CompulsoryEducationDurationYears_avg, data = data.train_avg.sub)
-summary(lm.avg.4)
-# compulsory education significantly impacts VSI
-
-# GDP per capita
-lm.avg.5 <- lm(VSI ~ GDP.Current_avg, data = data.train_avg.sub)
-summary(lm.avg.5)
-# GDP significantly impacts VSI
-
-# Life expectancy
-lm.avg.6 <- lm(VSI ~ LifeExpenctancy_avg, data = data.train_avg.sub)
-summary(lm.avg.6)
-# Life expectancy  significantly impacts VSI
-
-# model with all significant variables
-lm.avg.7 <- lm(VSI ~ LifeExpenctancy_avg +
-                  UrbanPopulation.Prop_avg + 
-                 CompulsoryEducationDurationYears_avg +
-                  GDP.Current_avg +
-                  IndividualsUsingInternet_avg, 
-               data = data.train_avg.sub)
-summary(lm.avg.7)
-# only Life Expectancy is useful here, It seems like this variable may be sufficient at predicting VSI. 
-
-# fit model (without any country/continent info)
-lm.avg.full <- lm(VSI ~ ., data = data.train_avg.sub)
-summary(lm.avg.full)
-
-# only LifeExpenctancy_avg shows a significant effect on VSI. Trying a reduced model with only this variable
-lm.avg.red <- lm(VSI ~ Adj.SavingNetForestDepletion_avg + Adj.SavingParticulateEmissions_avg, data = data.train_avg.sub)
-summary(lm.avg.red)
-anova(lm.avg.full, lm.avg.red)
-
-# also comparing full to lm.avg.7
-anova(lm.avg.full, lm.avg.7)
-
-```
-
-Models using single predictors indicate that `LifeExpenctancy_avg`, `UrbanPopulation.Prop_avg`, `CompulsoryEducationDurationYears_avg`, `GDP.Current_avg` and `IndividualsUsingInternet_avg` each have significant effects on `VSI`. In a full model including all 3 year average variables, `Adj.SavingNetForestDepletion_avg` and `Adj.SavingParticulateEmissions_avg` are the only significant variables. That said, the full model better explains the data than the reduced model (p<0.001) including only those 2 variables. In addition, the model including `LifeExpenctancy_avg`, `UrbanPopulation.Prop_avg`, `CompulsoryEducationDurationYears_avg`, `GDP.Current_avg` and `IndividualsUsingInternet_avg` appears to best explain `VSI` (p = 0.07). Thus, the above variables appear important in explaining `VSI` in this dataset. 
-
-
-#### WSD - 17 year change
-
-
-Let's now look at summary `WSD` measures indicating change between 2001 and 2018.
-
-```{r fig.width=10, fig.height=10}
-
-# create correlation plot to see whether some variables are highly correlated (not tolerated by lm)
-data.train_diff %>% 
-  select(-VSI) %>% # remove outcome variable as we want to highlight corrs among predictors only
-  select(-contains(c("deaths", "cases"))) %>% # focusing on WSD measures only
-  select_if(., is.numeric) %>%
-  cor(., use = "complete.obs") %>%
-  corrplot(method = "color", 
-           type = "upper", order = "hclust", 
-           addCoef.col = "black", # Add coefficient of correlation
-           tl.col="black", tl.srt = 45, #Text label color and rotation
-           # hide correlation coefficient on the principal diagonal
-           diag = FALSE 
-           )
-# find names of highly correlated variables
-correlations <- data.train_diff %>% 
-  select(-VSI) %>%
-  select(-contains(c("deaths", "cases"))) %>%
-  select_if(., is.numeric) %>%
-  cor(., use = "complete.obs")
-correlations[correlations < 0.8 | correlations == 1] <- ""
-correlations
-
-# some variables are perfectly or almost perfectly correlated. We will trim variables that have correlations over 0.8 to avoid multi-collinearity. 
-data.train_diff.sub <- data.train_diff %>%
-  select(-c(date_last, WorldRegion,  # not involved in variable selection for the diff dataset
-            Trade.GDP_rel.diff, # ExportGoodsServices.GDP_rel.diff
-            GrossNationalExpenditure.GDP_rel.diff, # FinalConsumptionExpenditure.GDP_rel.diff
-            GDP.PerCapita.Current_rel.diff # GDP.Current_rel.diff
-            )) %>%
-  select(-contains(c("deaths", "cases"))) # focusing on WSD measures only
-
-# # trying a few models with variables that should make sense...
-# internet use
-lm.diff.1 <- lm(VSI ~ IndividualsUsingInternet_rel.diff, data = data.train_diff.sub)
-summary(lm.diff.1)
-# internetusage has a significant effect on VSI
-
-# regime type
-lm.diff.2 <- lm(VSI ~ RegimeType_rel.diff, data = data.train_diff.sub)
-summary(lm.diff.2)
-# regime type has no effect on VSI
-
-# urban population percentage
-lm.diff.3 <- lm(VSI ~ UrbanPopulation.Prop_rel.diff, data = data.train_diff.sub)
-summary(lm.diff.3)
-# urban population has no effect on VSI
-
-# years of compulsory education
-lm.diff.4 <- lm(VSI ~ CompulsoryEducationDurationYears_rel.diff, data = data.train_diff.sub)
-summary(lm.diff.4)
-# compulsory education has no effect on VSI
-
-# GDP per capita
-lm.diff.5 <- lm(VSI ~ GDP.Current_rel.diff, data = data.train_diff.sub)
-summary(lm.diff.5)
-# GDP has no effect on VSI
-
-# Life expectancy
-lm.diff.6 <- lm(VSI ~ LifeExpenctancy_rel.diff, data = data.train_diff.sub)
-summary(lm.diff.6)
-# Life expectancy has a significant effect on VSI
-
-# fit model (without any country/continent info)
-lm.diff.full <- lm(VSI ~ ., data = data.train_diff.sub) 
-summary(lm.diff.full) # this still outputs NAs due to a large amount of NAs in the dataset. 
-
-```
-
-When considering single predictors, internet usage has a significant effect on VSI. When considering all variables, the full model will output NAs as measures computed as the 17 year difference relative to baseline appear to have many NAs. Therefore, 17 year difference measures do not seem suitable to use for further modeling. 
-
-
-### MG removing correlated variables
-using method from https://statisticsglobe.com/remove-highly-correlated-variables-from-data-frame-r to automatically remove highly correlated variables w/in WSD and COVID predictors
-
-First w/in WSD
+Before running our data-driven models, we'll automatically remove one of each pair of highly-colinear predictors within WSD and uor COVID pre-vaccine cases & deaths datasets. While the removal is unsupervised based on our specified 0.95 threshold, our dataframe is structured such that variables we believe will be more predictive or complete from a prior knowledge (2018 values or values averaged over all years) will be prioritized for selection over variables that are less likely to be relevant (such as change over the 17 year WSD period).
 
 ```{r}
+#method from https://statisticsglobe.com/remove-highly-correlated-variables-from-data-frame-r
 #correlations
 wsd.corr <- data.train %>% 
   select(-VSI) %>% # rm y
@@ -1176,15 +759,6 @@ wsd.corr <- data.train %>%
 wsd.corr[upper.tri(wsd.corr)] <- 0
 diag(wsd.corr) <- 0
 
-#remove vars at abs(0.95) threshold - keeping high to preserve as many variables as possible (also b/c we expect things to be correlated IRL)
-data.train.wsd.nocor <- data.train[ , !apply(wsd.corr,    # Remove highly correlated variables
-                           2,
-                           function(x) any(abs(x) > 0.95))]
-head(data.train.wsd.nocor)
-```
-Now w/in COVID
-
-```{r}
 #correlations
 covid.corr <- data.train %>% 
   select(-VSI) %>% # rm y
@@ -1196,133 +770,22 @@ covid.corr[upper.tri(covid.corr)] <- 0
 diag(covid.corr) <- 0
 
 #remove vars at abs(0.95) threshold - keeping high to preserve as many variables as possible (also b/c we expect things to be correlated IRL)
-data.train.covid.nocor <- data.train[ , !apply(covid.corr,    # Remove highly correlated variables
-                           2,
-                           function(x) any(abs(x) > 0.95) | )]
-head(data.train.covid.nocor)
-```
-
-Apply both for full predictor df
-
-```{r}
 covid.list <- apply(covid.corr, 2, function(x) any(abs(x) > 0.95))
 wsd.list <-  apply(wsd.corr, 2, function(x) any(abs(x) > 0.95))
-cor.list <- c(covid.list, wsd.list)
+cor.list <- c(covid.list, wsd.list) #list highly correlated variables
 data.train.nocor <- data.train[ , !cor.list]
 head(data.train.nocor)
+
+#see how many of each type of summary var were preserved
+data.train.nocor %>% dplyr::select(contains("_max")) %>% ncol()
+data.train.nocor %>% dplyr::select(contains("_prevac")) %>% ncol()
+data.train.nocor %>% dplyr::select(contains("_rel.diff")) %>% ncol()
+data.train.nocor %>% dplyr::select(contains("_diff")) %>% ncol()
+data.train.nocor %>% dplyr::select(contains("_3yr")) %>% ncol()
+data.train.nocor %>% dplyr::select(contains("_2018")) %>% ncol()
+data.train.nocor %>% dplyr::select(contains("_avg")) %>% ncol()
 ```
 
-### Selecting the "best" COVID dataset
-
-Finally, let's look at summary `COVID` cases and deaths measures to determine which ones are most informative. 
-
-#### COVID prevac
-
-We first consider covid `prevac` summary measures, which contain the latest reported cases and deaths measures before each country's vaccination start. 
-
-```{r fig.width=10, fig.height=10}
-
-# create correlation plot to see whether some variables are highly correlated (not tolerated by lm)
-data.train %>% 
-  select(-VSI) %>% # remove outcome variable as we want to highlight corrs among predictors only
-  select(contains(c("prevac"))) %>%
-  select_if(., is.numeric) %>%
-  cor(., use = "complete.obs") %>%
-  corrplot(method = "color", 
-           type = "upper", order = "hclust", 
-           addCoef.col = "black", # Add coefficient of correlation
-           tl.col="black", tl.srt = 45, #Text label color and rotation
-           # hide correlation coefficient on the principal diagonal
-           diag = FALSE 
-           )
-
-# find names of highly correlated variables
-correlations <- data.train %>% 
-  select(-VSI) %>%
-  select(contains(c("prevac"))) %>%
-  select_if(., is.numeric) %>%
-  cor(., use = "complete.obs")
-correlations[correlations < 0.8 | correlations == 1] <- ""
-correlations
-
-# some variables are perfectly or almost perfectly correlated. We will trim variables that have correlations over 0.8 to avoid multi-collinearity. 
-data.train_prevac.sub <- data.train %>%
-  # select(contains(c("deaths", "cases"))) # focusing on WSD measures only
-  select(VSI, contains(c("prevac"))) %>%
-  select(-c(cumulative_total_cases_prevac, # cumulative_total_deaths_prevac
-            active_cases_prevac, # daily_new_deaths_prevac
-            daily_new_cases_per_hundred_prevac, # weekly_new_deaths_per_hundred_prevac
-            cumulative_total_cases_per_hundred_prevac, # cumulative_total_deaths_per_hundred_prevac
-            weekly_new_cases_prevac, # monthly_new_casesprevac
-            weekly_new_cases_prevac, # monthly_new_casesprevac
-            monthly_new_cases_prevac, # monthly_new_deaths_prevac
-            weekly_new_deaths_per_hundred_prevac, # monthly_new_deaths_per_hundred_prevac
-            weekly_new_cases_per_hundred_prevac, # active_cases_per_hundred_prevac
-            daily_new_cases_prevac, # cumulative_total_cases_prevac
-            ))
-
-
-# fit full model 
-lm.prevac.full <- lm(VSI ~ ., data = data.train_prevac.sub) 
-summary(lm.prevac.full) 
-
-```
-
-None of the prevac variables have a significant effect. 
-
-#### COVID max
-
-We next consider covid `max` summary measures, which contain the peak of reported cases and deaths measures before each country's vaccination start. 
-
-```{r fig.width=10, fig.height=10}
-
-# create correlation plot to see whether some variables are highly correlated (not tolerated by lm)
-data.train %>% 
-  select(-VSI) %>% # remove outcome variable as we want to highlight corrs among predictors only
-  select(contains(c("max"))) %>%
-  select_if(., is.numeric) %>%
-  cor(., use = "complete.obs") %>%
-  corrplot(method = "color", 
-           type = "upper", order = "hclust", 
-           addCoef.col = "black", # Add coefficient of correlation
-           tl.col="black", tl.srt = 45, #Text label color and rotation
-           # hide correlation coefficient on the principal diagonal
-           diag = FALSE 
-           )
-
-# find names of highly correlated variables
-correlations <- data.train %>% 
-  select(-VSI) %>%
-  select(contains(c("max"))) %>%
-  select_if(., is.numeric) %>%
-  cor(., use = "complete.obs")
-correlations[correlations < 0.8 | correlations == 1] <- ""
-correlations
-
-# some variables are perfectly or almost perfectly correlated. We will trim variables that have correlations over 0.8 to avoid multi-collinearity. 
-data.train_prevac.sub <- data.train %>%
-  # select(contains(c("deaths", "cases"))) # focusing on WSD measures only
-  select(VSI, contains(c("max"))) %>%
-  select(-c(daily_new_cases_max,
-            daily_new_deaths_max,
-            daily.new.cases.per.100_max,
-            daily.new.deaths.per.100_max,
-            weekly_new_cases_max,
-            weekly_new_deaths_max,
-            weekly.new.cases.per.100_max, 
-            weekly.new.deaths.per.100_max,
-            monthly_new_cases_max,
-            monthly_new_deaths_max
-            ))
-
-
-# fit full model 
-lm.prevac.full <- lm(VSI ~ ., data = data.train_prevac.sub) 
-summary(lm.prevac.full) 
-
-```
-
-None of the max variables have a significant effect. 
 
 ## LASSO model selection
 
@@ -1572,5 +1035,43 @@ mar22.wsd.wide <- inner_join(last.timepoint, wsd.sum.wide, by="country")
 #merging everything!
 wsd.covid.all <- inner_join(covid.all, wsd.sum.wide, by="country")
 #skim(wsd.covid.all)
+
+#long wsd summary df
+wsd.sum.long <- wsd.sum.wide %>%
+  dplyr::select(-WorldBankIncomeClass_rel.diff, -RegimeType_rel.diff) %>%
+  # mutate(WorldBankIncomeClass_diff=as.factor(WorldBankIncomeClass_diff),
+  #        RegimeType_diff=as.factor(RegimeType_diff)) %>%
+  pivot_longer(c(contains("_")), 
+    names_to = c(".value", "type"), 
+    names_sep = "_", 
+    values_drop_na = TRUE
+  )
 ```
 
+Here's code to subdivide the train/test dfs based on what type of WSD predictors they include (i.e. so you can easily train a model only on the WSD 17-yr averages, plus static measures and covid cases/deaths).
+
+```{r,}
+# WSD 2018
+data.train_2018 <- data.train %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+data.test_2018 <- data.test %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+data.val_2018 <- data.val %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+data.train.test_2018 <- data.train.test %>% dplyr::select(-c(contains("_3yr") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+
+# 3 year average
+data.train_3yr <- data.train %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+data.test_3yr <- data.test %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+data.val_3yr <- data.val %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+data.train.test_3yr <- data.train.test %>% dplyr::select(-c(contains("_2018") | contains("_avg") | contains("_rel.diff") | contains("_diff")))
+
+# 17 year average
+data.train_avg <- data.train %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
+data.test_avg <- data.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
+data.val_avg <- data.val %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
+data.train.test_avg <- data.train.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_rel.diff") | contains("_diff")))
+
+#17 year change
+data.train_diff <- data.train %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
+data.test_diff <- data.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
+data.val_diff <- data.val %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
+data.train.test_diff <- data.train.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
+```
