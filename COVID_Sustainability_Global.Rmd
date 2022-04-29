@@ -126,7 +126,7 @@ head(wsd.sum.wide)
 #removing 1 of each very colinear pair, method from https://statisticsglobe.com/remove-highly-correlated-variables-from-data-frame-r
 #stash year and non-numeric variables
 wsd.fac <- wsd.sum.wide %>%
-  select(negate(is.numeric)| contains("Year"))
+  select(negate(is.numeric)| "Year_latest", "nYears_avg")
 
 #plot
 # create correlation plot to see whether some variables are highly correlated (not tolerated by lm)
@@ -143,7 +143,7 @@ wsd.sum.wide %>%
 
 #get colinearities  
 wsd.num <- wsd.sum.wide %>% 
-  select(-contains("Year")) %>%
+  select(-c("Year_latest", "nYears_avg")) %>%
   select_if(., is.numeric)
 wsd.corr <- wsd.num %>%
   cor(., use="pairwise.complete.obs")
@@ -846,24 +846,93 @@ Our final Testing MSE from the Random Forest model is `r rf.mse`. This is much b
 Running regsubsets:
 
 ```{r}
-#subset data.train & data.test together since Cp will approx test error
-data.fit1 <- data.train.test %>% dplyr::select(VSI, cumulative_total_cases_per_hundred_prevac, cumulative_total_deaths_per_hundred_prevac, weekly.new.deaths.per.100_max, Continent, Electricity.Access_3yr, GDP.PerCapita.Current_2018, UrbanPopulation.Prop_3yr, LifeExpenctancy_rel.diff, Trade.GDP_3yr, CompulsoryEducationDurationYears_3yr)
-
-fit1 <- regsubsets(VSI ~., data.fit1 , nvmax=25, method="exhaustive")
+fit1 <- regsubsets(VSI ~., data.train.test , nvmax=25, method="backward", really.big = TRUE)
 f.e <- summary(fit1)
 opt.size <- which.min(f.e$cp) #pick size with lowest cp
-fit.exh.var <- f.e$which # logic indicators which variables are in
-colnames(fit.exh.var)[fit.exh.var[opt.size,]][-1] # output variables selected
-fit2 <- lm(VSI ~ Continent+Electricity.Access_3yr+GDP.PerCapita.Current_2018+CompulsoryEducationDurationYears_3yr, data.fit1)    # fit with selected variables
-Anova(fit2) 
-#note - not all significant but should stick with model minimizing Cp, right?
+fit.var <- f.e$which # logic indicators which variables are in
 
-#check assumptions - NOTE - not great!
-par(mfrow=c(1,2))
-plot(fit2, 1) #linearity & homoscedasticity
-plot(fit2, 2) #normality
+regsub.vars <- colnames(fit.var)[fit.var[opt.size,]][-1] # output variables selected
+regsub.vars
+
+fit1.lm <- lm(VSI ~ LifeExpenctancy_avg, data.train.test)
 ```
 
+
+```{r}
+#subset data.train & data.test together since Cp will approx test error -
+#seems that regsubsets still takes issue with our data being too colinear, will re-run reduction with 90% cutoff on data.train.test to test
+
+#stash year and non-numeric variables
+dtt.fac <- data.train.test %>%
+  select(negate(is.numeric)| "Year_latest", "nYears_avg")
+
+#plot
+# create correlation plot to see whether some variables are highly correlated (not tolerated by lm)
+#get colinearities
+dtt.num <- data.train.test %>%
+  select(-c("Year_latest", "nYears_avg")) %>%
+  select_if(., is.numeric)
+dtt.corr <- dtt.num %>%
+  cor(., use="pairwise.complete.obs")
+#removing upper triangle
+dtt.corr[upper.tri(dtt.corr)] <- 0
+diag(dtt.corr) <- 0
+
+#remove vars at abs(0.9) threshold
+dtt.list <-  apply(dtt.corr, 2, function(x) any(abs(x) > 0.95)) #list highly correlated variables
+dtt.nocor <- dtt.num[ , !dtt.list]
+#add back factors
+dtt.nocor <- cbind(dtt.fac, dtt.nocor)
+dim(dtt.nocor)
+head(dtt.nocor)
+```
+
+
+```{r, warning=FALSE}
+fit2 <- regsubsets(VSI ~., dtt.nocor , nvmax=25, method="forward", really.big = TRUE)
+f.e2 <- summary(fit2)
+opt.size2 <- which.min(f.e2$cp) #pick size with lowest cp
+fit.var2 <- f.e$which # logic indicators which variables are in
+
+regsub.vars2 <- colnames(fit.var2)[fit.var2[opt.size2,]][-1] # output variables selected
+# regsub.vars2 <- regsub.vars2[-grep("WorldRegion", regsub.vars2)] # remove levels - prob cleaner way to do this
+# regsub.vars2 <- regsub.vars2[-grep("WorldBankIncomeClass", regsub.vars2)] # remove levels
+# regsub.vars2 <- regsub.vars2[-grep("RegimeType", regsub.vars2)] # remove levels
+# dtt.reg <-  data.train.test %>%
+#   select(c("RegimeType_latest", "WorldRegion", "WorldBankIncomeClass_latest", "WorldBankIncomeClass_avg", "VSI", regsub.vars2)) # get a subset with response and regsub vars
+
+fit2.lm <- lm(VSI ~ RegimeType_latest + 
+                WorldRegion + 
+                WorldBankIncomeClass_latest +
+                WorldBankIncomeClass_avg +
+                Year_latest +
+                nYears_avg +
+                Adj.SavingNetCO2Damage_latest +
+                CompulsoryEducationDurationYears_latest +
+                ImportGoodsServices.GDP_latest +
+                ConsumerPriceInflation_latest +
+                Electricity.Access_avg +
+                Adj.SavingNetCO2Damage_avg +
+                ConsumerPriceInflation_avg +
+                LifeExpenctancy_avg +
+                TotalNaturalResources.GDP_avg +
+                weekly_new_deaths_max +
+                weekly.new.cases.per.100_max +
+                weekly.new.deaths.per.100_max +
+                daily_new_cases_per_hundred_prevac +
+                cumulative_total_cases_per_hundred_prevac
+              , data.train.test)    # fit with selected variables - maybe rm Year variables? logically shouldnt predict....
+Anova(fit2.lm) 
+#note - not all significant but should stick with model minimizing Cp, right?
+
+#check assumptions
+par(mfrow=c(1,2))
+plot(fit2.lm, 1) #linearity & homoscedasticity
+plot(fit2.lm, 2) #normality
+
+#compare models - maybe directly compare Cp too? is that a thing?
+anova(fit1.lm, fit2.lm, test='F')
+```
 
 ## Neural Networks
 
