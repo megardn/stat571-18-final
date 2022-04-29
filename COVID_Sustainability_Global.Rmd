@@ -29,7 +29,7 @@ if(!require("pacman")) install.packages("pacman")
 
 pacman::p_load(tidyverse, dplyr, ggplot2, ggthemes, data.table, lubridate,
                GGally, RColorBrewer, ggsci, plotROC, usmap,
-               plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car, keras, neuralnet, tensorflow, missForest, corrplot, tree, randomForest)
+               plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car, keras, neuralnet, tensorflow, missForest, corrplot, tree, randomForest, fastDummies)
 ```
 
 
@@ -65,6 +65,7 @@ Before attempting to merge, I'll parse down the dataframes so we can hopefully w
 To start, we'll try several different methods of summarizing the longitudinal WSD data into a single "timepoint". We selected the latest data reported for each country (restricted to 2016 or later) and calculated: the average of each parameter over time (2001 to 2018); the average of the last 3 years of data (2016-2018); and the relative and absolute change in each parameter over time (2001-2018). In order to maximize completeness and recency of the dataset while minimizing colinearity, we decided to use each country's latest data and data averaged over 17 years in our models below *question - except nns?*. Code for each unused summary dataframe can be found in the appendix.
 
 ```{r}
+
 # latest data for each country, restricted to 2016 or later
 wsd.latest <- wsd %>% arrange(Year) %>%
   group_by(country) %>%
@@ -74,7 +75,6 @@ wsd.latest <- wsd %>% arrange(Year) %>%
 colnames(wsd.latest)[5:31] <- paste(colnames(wsd.latest)[5:31], "latest", sep = "_") #add suffix
 table(as.factor(wsd.latest$Year_latest)) # see yr frequencies
 ```
-
 
 Averaging across all years for every country with available data.  **add table/graph to show how many years each country has data for**
 
@@ -701,7 +701,6 @@ plot(lm.full.2.refined, 1:2)
 *rewrite this! think it makes sense to keep plot, since life expectancy is most predictive?* When using all relevant variables found in prior models, it turns out that life expectancy (reported in 2018) is the only variable having a significant effect on `VSI`. Diagnostic plots show that the model sufficiently fulfills linear model assumptions of normality and homoscedasticity. The relationship between life expectancy and VSI is plotted here: 
 
 
-
 ```{r}
 # get life expectancy p value
 lm.full.2.refined.summ <- summary(lm.full.2.refined)
@@ -947,7 +946,7 @@ Attempting neural nets:
 
 **may need to set dummy vars for categorical**
 
-Defining neural nets -   
+Defining neural nets:   
   + normalization
   + two layers with 8 neurons in each layer
   + Activation function is `Relu`
@@ -967,7 +966,7 @@ Imputing & setting x and y data as matrixes
 #need to impute over NAs, using missForest for now
 data.nn.train <- data.train.test %>% 
   mutate(across(where(is_character),as_factor)) %>% 
-  select_if(funs(!is.Date(.)))
+  select_if(funs(!is.Date(.))) #drop dates, can't be imputed
 data.nn.trainimp <- missForest(data.nn.train, variablewise = TRUE)
 data.nn.trainimp$ximp
 data.nn.trainimp$OOBerror #high :(
@@ -976,23 +975,25 @@ data.nn.trainimp$OOBerror #high :(
 good.predict <- which(data.nn.trainimp$OOBerror < 0.25) %>% unname()
 nn.trainimp <- data.nn.trainimp$ximp[, c(good.predict)]
 setdiff(names(data.nn.train), names(nn.trainimp)) #see what cols were lost
-# dim(nn.trainimp) #imputing gives us 108 cols to work with
-# dim(data.nn.train[ , colSums(is.na(data.nn.train)) == 0]) #as opposed to dropping all NA cols, which only gives us 67
-# dim(na.omit(data.nn.train)) #or dropping rows with NAs, which would mean only 17 countries
+dim(nn.trainimp) #imputing gives us 89 cols to work with
+dim(data.nn.train[ , colSums(is.na(data.nn.train)) == 0]) #as opposed to dropping all NA cols, which only gives us 57
+dim(na.omit(data.nn.train)) #or dropping rows with NAs, which would mean only 19 countries
+
+#set dummy variables for categorical
+nn.train.final <- dummy_cols(nn.trainimp, remove_first_dummy = TRUE) %>% #setting remove_first_dummy = TRUE to have base levels
+ select_if(funs(!is.factor(.))) #drop original factors
 
 ## training input/y: need to be matrix/vector
-data_xtrain <- nn.trainimp[, -99] %>% select_if(is.numeric)  #dim(data3_xtrain), remove y
-data_ytrain <- nn.trainimp[, 99]   # find y
-data_xtrain <- as.matrix(data_xtrain) # make sure it it is a matrix
-data_ytrain <- as.matrix(data_ytrain) # make sure it it is a matrix
+data_xtrain <- nn.train.final %>% dplyr::select(-VSI) %>% as.matrix()  #dim(data3_xtrain)
+data_ytrain <- nn.train.final %>% dplyr::select(VSI) %>% as.matrix()  # find y
 
-## validation input/y
-data_xval <- data.val[, -204]   #dim(data3_xtrain), remove y
-data_yval <- data.val[, 204]   # find y
-data_xval <- as.matrix(data_xval) # make sure it it is a matrix
-data_yval <- as.matrix(data_yval) # make sure it it is a matrix
+# ## validation input/y - figure this out with impute/dummy vars later!
+# data_xval <- data.val[, -204]   #dim(data3_xtrain), remove y
+# data_yval <- data.val[, 204]   # find y
+# data_xval <- as.matrix(data_xval) # make sure it it is a matrix
+# data_yval <- as.matrix(data_yval) # make sure it it is a matrix
 ```
-cumulative_total_deaths_last
+
 
 Build and compile model
 ```{r}
@@ -1003,10 +1004,10 @@ set_random_seed(10)
 p <- dim(data_xtrain)[2] # number of input variables (columns)
 model <- keras_model_sequential() %>%
   layer_batch_normalization(input_shape = c(p)) %>% #recommended, not certain it's correct
-  layer_dense(units = 12, activation = "relu") %>%
-  # layer_dropout(0.25) %>% # drop 25% - https://stackoverflow.com/questions/37232782/nan-loss-when-training-regression-network
-  layer_dense(units = 12, activation = "relu") %>%  
-  # layer_dropout(0.25) %>% # drop 25%
+  layer_dense(units = 24, activation = "relu") %>%
+  layer_dropout(0.25) %>% # drop 20% - https://stackoverflow.com/questions/37232782/nan-loss-when-training-regression-network
+  layer_dense(units = 26, activation = "relu") %>%  
+  layer_dropout(0.25) %>% # drop 20%
   layer_dense(units = 1, activation = "linear") # output = 1 unit for linear(?) regression
 print(model)
 
@@ -1017,28 +1018,71 @@ print(model)
 #   metrics = list("mean_squared_error"),
 # )
 
-#compile model (based on https://tensorflow.rstudio.com/tutorials/beginners/basic-ml/tutorial_basic_regression/)
+#compile model B (based on https://tensorflow.rstudio.com/tutorials/beginners/basic-ml/tutorial_basic_regression/)
 model %>%
   compile(
     loss = "mse",
     optimizer = optimizer_rmsprop(),
-    metrics = c("accuracy")
+    metrics = list("mean_absolute_error")
   )
+
+# #compile model C (based on https://towardsdatascience.com/keras-and-r-predicting-blood-glucose-levels-with-the-sequential-model-596efe89a6b8)
+# model %>% compile(
+#   loss = 'mean_squared_error',
+#   optimizer = 'adam',
+#   metrics = c('mae')
+# )
 ```
 
 Fitting model
+
+good (?) params: 
+12x12x1, model B, epochs=150 & batch size=50 @ epoch 20
+  - loss = 1.95, val_loss = 3.73
+12x12x1, model B, epochs=150 & batch size=32 @ epoch 20
+  - loss = 1.92, val_loss = 3.71
+12x12x1, model B, epochs=150 & batch size=24 @ epoch 20
+  - loss = 1.73, val_loss = 3.46
+12x12x1, model B, epochs=150 & batch size=18 @ epoch 20
+  - loss = 1.48, val_loss = 3.32
+12x12x1, model B, epochs=150 & batch size=12 @ epoch 20
+  - loss = 1.67, val_loss = 2.93
+*16x8x1, model B, epochs=150 & batch size=12 @ epoch 20*
+  - loss = 1.23, val_loss = 2.1
+*16x8x1, model B, epochs=150 & batch size=24 @ epoch 20*
+  - loss = 1.1, val_loss = 2.4
+16x8x1, model B, epochs=150 & batch size=24 @ epoch 20
+  - loss = 1.15, val_loss = 2.65
+16x8x1, model C, epochs=150 & batch size=36 @ epoch 20
+  - loss = 1.3, val_loss = 2.83
+16x8x1, model C, epochs=150 & batch size=24 @ epoch 20
+  - loss = 1.18, val_loss = 2.41
+16x8x1, model C, epochs=150 & batch size=12 @ epoch 20
+  - loss = 1.24, val_loss = 2.06 - looks gross though
+16x8x1, model B, epochs=150 & batch size=12 @ epoch 20 w / dropout
+  - loss = 1.75, val_loss = 2.2
+24x16x1, model B, epochs=150 & batch size=12 @ epoch 20
+  - loss = 1.16, val_loss = 1.94
+24x16x1, model B, epochs=150 & batch size=12 @ epoch 20 w/ dropout
+  - loss = 1.81, val_loss = 1.93
+24x16x1, model B, epochs=150 & batch size=24 @ epoch 20
+  - loss = 0.83, val_loss = 3.24
+24x16x1, model B, epochs=150 & batch size=24 @ epoch 20 w/ dropout 25%
+  - loss = 1.78, val_loss = 2.4
 
 ```{r}
 set_random_seed(10)
 fit.nn <- model %>% fit(
   data_xtrain,
   data_ytrain,
-  epochs = 100,
-  batch_size = 20,
+  epochs = 150,
+  batch_size = 24,
   validation_split = .15 # set 15% of the data_xtrain, data_ytrain as the validation data
 )
 
 plot(fit.nn)
+fit.nn$metrics$loss[20]
+fit.nn$metrics$val_loss[20]
 ```
 
 # Appendix
