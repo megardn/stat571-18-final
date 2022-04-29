@@ -855,6 +855,7 @@ regsub.vars <- colnames(fit.var)[fit.var[opt.size,]][-1] # output variables sele
 regsub.vars
 
 fit1.lm <- lm(VSI ~ LifeExpenctancy_avg, data.train.test)
+Anova(fit1.lm)
 ```
 
 
@@ -930,9 +931,13 @@ par(mfrow=c(1,2))
 plot(fit2.lm, 1) #linearity & homoscedasticity
 plot(fit2.lm, 2) #normality
 
-#compare models - maybe directly compare Cp too? is that a thing?
-anova(fit1.lm, fit2.lm, test='F')
+#compare models - refitting on na.omit df, otherwise can't compare
+fit1.lm.comp <- update(fit1.lm, .~., data=na.omit(data.train.test))
+fit2.lm.comp <- update(fit2.lm, .~., data=na.omit(data.train.test))
+anova(fit1.lm.comp, fit2.lm.comp)
 ```
+
+Looks like `fit2.lm.comp` is a better model
 
 ## Neural Networks
 
