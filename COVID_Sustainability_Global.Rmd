@@ -74,9 +74,10 @@ n_unique(wsd.2018$country) #only 109 of 141 countries have 2018 data
 Because only `r n_unique(wsd.2018$country)` of `r n_unique(wsd$country)` countries have sustainability data in 2018, I've also made a df including the latest available data from each country. However, we may not want to use it since the last data represents a wide range from `r unname(summary(wsd.latest$Year_latest)[1])` to `unname(summary(wsd.latest$Year_latest)[6])`
 
 ```{r}
-# latest data for each country
+# latest data for each country, restricted to 2016+
 wsd.latest <- wsd %>% arrange(Year) %>%
   group_by(country) %>%
+  filter(Year >= 2016) %>%
   slice_tail(n=1) %>%
   ungroup()
 colnames(wsd.latest)[2:31] <- paste(colnames(wsd.latest)[2:31], "latest", sep = "_") #add suffix
@@ -90,7 +91,7 @@ Values averaged across 2016-2018; only includes countries with data from all 3 y
 wsd.3yr.num <- wsd %>% arrange(Year) %>%
   filter(Year >= 2016) %>% #get 2016-2018 data
   group_by(country) %>%
-  filter(n() == 3) %>%
+  #filter(n() == 3) %>%
   summarise_if(is.numeric, mean) %>% #means
   ungroup()
 colnames(wsd.3yr.num)[2:26] <- paste(colnames(wsd.3yr.num)[2:26], "3yr", sep = "_") #add suffix
@@ -106,7 +107,7 @@ Mode <- function(x) {
 wsd.3yr.fac <- wsd %>% arrange(Year) %>%
   group_by(country) %>%
   filter(Year >= 2016) %>% #get 2016-2018 data
-  filter(n() == 3) %>%
+  #filter(n() == 3) %>%
   mutate(WorldBankIncomeClass = Mode(WorldBankIncomeClass),
          RegimeType = Mode(RegimeType),
          nYears=n()) %>% #count how many years are being averaged for each country) %>%
@@ -229,6 +230,32 @@ wsd.sum.long <- wsd.sum.wide %>%
   )
 
 head(wsd.sum.wide)
+
+
+#removing highly correlated vars
+wsd.df_list2 <- list(wsd.latest, wsd.avg) #dfs to merge
+wsd.sum.wide2 <- wsd.df_list2 %>% reduce(full_join, by='country')
+#correlations
+wsd.corr2 <- wsd.sum.wide2 %>% 
+  select_if(., is.numeric) %>%
+  cor(., use="pairwise.complete.obs")
+#removing upper triangle
+wsd.corr2[upper.tri(wsd.corr2)] <- 0
+diag(wsd.corr2) <- 0
+wsd.corr2.list <-  apply(wsd.corr2, 2, function(x) any(abs(x) > 0.97))
+data.wsd2.nocorr <- wsd.sum.wide2[ , !wsd.corr2.list]
+
+
+wsd.avgcorr2 <- wsd.avg %>% 
+  select_if(., is.numeric) %>%
+  cor(., use="pairwise.complete.obs")
+#removing corr from wsd avg
+wsd.avgcorr2[upper.tri(wsd.avgcorr2)] <- 0
+diag(wsd.avgcorr2) <- 0
+wsd.avgcorr2.list <-  apply(wsd.avgcorr2, 2, function(x) any(abs(x) > 0.97))
+data.wsd.avg.nocorr <- wsd.avgcorr2[ , !wsd.avgcorr2.list]
+
+
 ```
 
 ## COVID Summary Values
