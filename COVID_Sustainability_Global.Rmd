@@ -452,9 +452,13 @@ vac.sum.with.VSI %>%
     theme(axis.text.x = element_text(angle = 60, hjust=1))
 ggplot(vac.sum.with.VSI, aes(x = reorder(country, -VSI), y = VSI, fill = country)) + 
   geom_bar(stat = "identity")
+
+#summary(vac.sum.with.VSI$VSI)#VSI range
 ```
 
 We can see that Somalia appears to be the country with the lowest VSI, and Cuba appears to have the highest VSI. 
+
+*Joelle to add worldmap of VSI*
 
 # Compiling Dataset
 
@@ -479,32 +483,28 @@ n_unique(final.df$country)
 
 # Modeling
 
-In this section, we are using socioeconomic factors from `case.wsd.wide` to predict Vaccination Success Index (VSI). Note that VSI corresponds the inverse signed PC1 scores (from `data/VaccinationSucessIndexData-New.csv`) using and thus indicates how well a country did at getting people vaccinated, i.e. a positive score indicates a good vaccination performance, while a negative score indicates a poor vaccination performance. 
+In this section, we are using socioeconomic factors and pre-vaccination COVID cases and deaths from `case.wsd.wide` to predict Vaccination Success Index (VSI). Note that VSI corresponds the inverse signed PC1 scores and (based on the relative loadings of each raw vaccination value) indicates how well a country did at getting people vaccinated, i.e. a positive score indicates a good vaccination performance, while a negative score indicates a poor vaccination performance. 
 
 ## Data splitting
 
-We'll start by subsetting our dataset of 108 countries into `data.train`(60%), `data.test` (20%), and `data.val` (20%).
+We'll start by subsetting our dataset of 99 countries into `data.train`(85%) and `data.val` (15%). These splits were chosen because our dataset has a relatively small number of predictors and our most robust modeling methods have means of estimating testing error (Random Forest's OOB error, Regsubsets Cp, Neural Networks' internal data.val split).
 
 ```{r}
 # Split the data 
 N <- length(final.df$country)
-n1 <- floor(.6*N)
-n2 <- floor(.2*N)
+n1 <- floor(.85*N)
+n2 <- floor(.15*N)
 
-#dropping country, continent and country.code 
-df.pred <- final.df %>% dplyr::select(-c(country, Continent, Country.Code))
+#dropping vars we don't want to predict on
+df.pred <- final.df %>% dplyr::select(-c(country, Continent, Country.Code, Year_latest, nYears_avg)) #drop years!
   
 set.seed(10)
 
 # Split data to three portions of .6, .2 and .2 of data size N
 idx_train <- sample(N, n1)
-idx_no_train <- (which(! seq(1:N) %in% idx_train))
-idx_test <- sample(idx_no_train, n2)
-idx_val <- which(! idx_no_train %in% idx_test)
+idx_val <- (which(! seq(1:N) %in% idx_train))
 data.train <- as.data.frame(df.pred[idx_train,])
-data.test <- as.data.frame(df.pred[idx_test,])
 data.val <- as.data.frame(df.pred[idx_val,])
-data.train.test <- as.data.frame(df.pred[-idx_val,]) #for methods that don't require separate test set
 ```
 
 
@@ -552,15 +552,17 @@ lm.econ.1 <- lm(data = data.train, formula = VSI ~ ExportGoodsServices.GDP_avg +
 summary(lm.econ.1)
 #Anova(lm.econ.1)
 
-# remove non-significant variables w backward selection
-lm.econ.1.refined <- update(lm.econ.1, .~. -FinalConsumptionExpenditure.GDP_avg)
-#Anova(lm.econ.1.refined)
-lm.econ.2.refined <- update(lm.econ.1.refined, .~. -ExportGoodsServices.GDP_avg)
-#Anova(lm.econ.2.refined)
-lm.econ.3.refined <- update(lm.econ.2.refined, .~. -GDP.Current_avg )
-#Anova(lm.econ.3.refined)
-lm.econ.4.refined <- update(lm.econ.3.refined, .~. -ConsumerPriceInflation_avg)
-Anova(lm.econ.4.refined)
+#commented b/c fit using the 60% data.train, will need to be checked:
+
+# # remove non-significant variables w backward selection
+# lm.econ.1.refined <- update(lm.econ.1, .~. -FinalConsumptionExpenditure.GDP_avg)
+# #Anova(lm.econ.1.refined)
+# lm.econ.2.refined <- update(lm.econ.1.refined, .~. -ExportGoodsServices.GDP_avg)
+# #Anova(lm.econ.2.refined)
+# lm.econ.3.refined <- update(lm.econ.2.refined, .~. -GDP.Current_avg )
+# #Anova(lm.econ.3.refined)
+# lm.econ.4.refined <- update(lm.econ.3.refined, .~. -ConsumerPriceInflation_avg)
+# Anova(lm.econ.4.refined)
 ```
   
 The GDP per capita has a significant effect on Vaccination Success Index at the 0.05 level. This indicates that an increase in the per-capita GDP of a nation averaged over the last 17 years corresponds to an increase in the success of that country's vaccination campaign. 
@@ -589,14 +591,14 @@ lm.covid.1 <- lm(VSI ~ cumulative_total_cases_per_hundred_prevac +
 summary(lm.covid.1)
 Anova(lm.covid.1)
 
-#LOL only the intercept is significant, going to do some forward selection
+#LOL only the intercept is significant, going to do some forward selection - start with cumulative_total_cases_per_hundred_prevac!
 lm.covid.death <- lm(VSI ~ cumulative_total_deaths_per_hundred_prevac, data = data.train)
 summary(lm.covid.death)
 lm.covid.f2 <- update(lm.covid.death, .~. + cumulative_total_cases_per_hundred_prevac)
 summary(lm.covid.f2) #tried a few different options, adding more COVID vars don't seem to be predictive
 Anova(lm.covid.f2)
 
-# based on Anova, looks like cumulative_total_cases_per_hundred_prevac is the way to go
+# based on Anova, looks like cumulative_total_cases_per_hundred_prevac is the way to go - forward selection on this!
 lm.covid.case <- lm(VSI ~ cumulative_total_cases_per_hundred_prevac, data = data.train)
 summary(lm.covid.case)
 ```
@@ -638,19 +640,21 @@ lm.political.1 <- lm(VSI ~ WorldRegion +
 summary(lm.political.1)
 Anova(lm.political.1)
 
-# remove non-significant variables w backward selection
-lm.political.1.refined <- update(lm.political.1, .~. -GDP.PerCapita.Current_avg)
-#Anova(lm.political.1.refined)
-lm.political.2.refined <- update(lm.political.1.refined, .~. -WorldBankIncomeClass_avg)
-#Anova(lm.political.2.refined)
-lm.political.3.refined <- update(lm.political.2.refined, .~. -UrbanPopulation.Prop_avg)
-#Anova(lm.political.3.refined)
-lm.political.4.refined <- update(lm.political.3.refined, .~. -Electricity.Access_avg)
-#Anova(lm.political.4.refined)
-lm.political.5.refined <- update(lm.political.4.refined, .~. -IndividualsUsingInternet_latest)
-#Anova(lm.political.5.refined)
-lm.political.6.refined <- update(lm.political.5.refined, .~. -CompulsoryEducationDurationYears_latest)
-Anova(lm.political.6.refined)
+#commented b/c fit using the 60% data.train, will need to be checked:
+
+# # remove non-significant variables w backward selection
+# lm.political.1.refined <- update(lm.political.1, .~. -GDP.PerCapita.Current_avg)
+# #Anova(lm.political.1.refined)
+# lm.political.2.refined <- update(lm.political.1.refined, .~. -WorldBankIncomeClass_avg)
+# #Anova(lm.political.2.refined)
+# lm.political.3.refined <- update(lm.political.2.refined, .~. -UrbanPopulation.Prop_avg)
+# #Anova(lm.political.3.refined)
+# lm.political.4.refined <- update(lm.political.3.refined, .~. -Electricity.Access_avg)
+# #Anova(lm.political.4.refined)
+# lm.political.5.refined <- update(lm.political.4.refined, .~. -IndividualsUsingInternet_latest)
+# #Anova(lm.political.5.refined)
+# lm.political.6.refined <- update(lm.political.5.refined, .~. -CompulsoryEducationDurationYears_latest)
+# Anova(lm.political.6.refined)
 ```
 
 World region, and 17-year averages of life expectancy, women in business and law professions, and regime type seem to predict VSI.
@@ -670,7 +674,9 @@ Selected variables:
 * `RegimeType_avg` - categorical classifying as Closed Autocracy, Electoral Autocracy, Electoral Democracy, Liberal Democracy
 
 ```{r}
-# build full model 
+# fit using the 60% data.train, will need to be checked:
+
+# build full model
 lm.full <- lm(VSI ~ GDP.PerCapita.Current_avg +
              cumulative_total_cases_per_hundred_prevac +
              WorldRegion +
@@ -726,13 +732,13 @@ plot_VSI_lifexp
 Let's now try a slightly more data-driven approach, i.e. using LASSO to select the most relevant variables. Dropping some variables first as LASSO doesn't like NAs. 
 
 ```{r}
-# remove all rows containing NAs (LASSO does not work without this step) - lost 8 rows :(
+# remove all rows containing NAs (LASSO does not work without this step) - lost 9 rows :(
 data.train.sub <- na.omit(data.train)
 nrow(data.train.sub)
 
 # create matrices to feed into gmnet
-Y <- as.matrix(data.train.sub[, 63]) # extract Y (VSI)
-X <- model.matrix(VSI~., data = data.train.sub)[, -63] # remove the first (interecept) column with only 1s
+Y <- as.matrix(data.train.sub[, 61]) # extract Y (VSI)
+X <- model.matrix(VSI~., data = data.train.sub)[, -61] # remove the first (interecept) column with only 1s
 
 # to control the randomness in K folds 
 set.seed(10)  
@@ -771,14 +777,8 @@ Now, we will try to use tree based methods (single decision tree and random fore
 
 First, we will try using a single regression tree. 
 
-*frankly not certain which dfs are supposed to go to which chunks, but at this point all data.train, data.test, etc, have been cleared of highly correlated variables. Completion is high in data.train but if na.omit is needed can pull data.train.sub defined in LASSO chunk above. Or use data.train.test, since OOB will predict testing error and we can skip*
-```{r}
-# cleaned.data.train <- dplyr::select(data.train.nocor, -contains(c("_rel.diff", "_diff", "_2018", "_3yr")))
-# skimr::skim(cleaned.data.train)
-```
-
 ```{r, fig.height=6, fig.width=15}
-single.tree1 <- tree(VSI ~ ., cleaned.data.train, control=tree.control(nobs=nrow(cleaned.data.train),
+single.tree1 <- tree(VSI ~ ., data.train.sub, control=tree.control(nobs=nrow(data.train.sub),
                                               minsize=4,     
                                               mindev=0.009))
 plot(single.tree1)
@@ -789,6 +789,7 @@ title("Single Tree | VSI Prediction")
 Now that we've generated our tree, let's see how well it does at predicting unseen data. 
 
 ```{r}
+# no more data.test - can split data.train before running single tree if you want
 tree.test.prediction <- predict(single.tree1, newdata = data.test)
 tree.mse <- mean((data.test$VSI - tree.test.prediction)^2) # calculate mean squared prediction error
 tree.mse
@@ -834,6 +835,7 @@ plot(fit.final.rf)
 Due to the bootstrapping of samples done by Random Forest, we could use our OOB error as testing error, but for the sake of consistency, we will use our testing dataset to calculate Mean Squared Prediction Error. 
 
 ```{r}
+#again, no more data.test
 rf.test.prediction <- predict(fit.final.rf, newdata = data.test)
 rf.mse <- mean((data.test$VSI - rf.test.prediction)^2) # calculate mean squared prediction error
 rf.mse
@@ -846,7 +848,7 @@ Our final Testing MSE from the Random Forest model is `r rf.mse`. This is much b
 Running regsubsets:
 
 ```{r}
-fit1 <- regsubsets(VSI ~., data.train.test , nvmax=25, method="backward", really.big = TRUE)
+fit1 <- regsubsets(VSI ~., data.train , nvmax=25, method="forward", really.big = TRUE)
 f.e <- summary(fit1)
 opt.size <- which.min(f.e$cp) #pick size with lowest cp
 fit.var <- f.e$which # logic indicators which variables are in
@@ -854,7 +856,7 @@ fit.var <- f.e$which # logic indicators which variables are in
 regsub.vars <- colnames(fit.var)[fit.var[opt.size,]][-1] # output variables selected
 regsub.vars
 
-fit1.lm <- lm(VSI ~ LifeExpenctancy_avg, data.train.test)
+fit1.lm <- lm(VSI ~ LifeExpenctancy_avg, data.train)
 Anova(fit1.lm)
 ```
 
