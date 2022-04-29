@@ -550,11 +550,17 @@ lm.econ.1 <- lm(data = data.train, formula = VSI ~ ExportGoodsServices.GDP_avg +
                   GDP.PerCapita.Current_avg +
                   ConsumerPriceInflation_avg)
 summary(lm.econ.1)
+#Anova(lm.econ.1)
 
-# remove non-significant variables
-lm.econ.1.refined <- lm(data = data.train, formula = VSI ~ GDP.PerCapita.Current_avg)
-summary(lm.econ.1.refined)
-
+# remove non-significant variables w backward selection
+lm.econ.1.refined <- update(lm.econ.1, .~. -FinalConsumptionExpenditure.GDP_avg)
+#Anova(lm.econ.1.refined)
+lm.econ.2.refined <- update(lm.econ.1.refined, .~. -ExportGoodsServices.GDP_avg)
+#Anova(lm.econ.2.refined)
+lm.econ.3.refined <- update(lm.econ.2.refined, .~. -GDP.Current_avg )
+#Anova(lm.econ.3.refined)
+lm.econ.4.refined <- update(lm.econ.3.refined, .~. -ConsumerPriceInflation_avg)
+Anova(lm.econ.4.refined)
 ```
   
 The GDP per capita has a significant effect on Vaccination Success Index at the 0.05 level. This indicates that an increase in the per-capita GDP of a nation averaged over the last 17 years corresponds to an increase in the success of that country's vaccination campaign. 
@@ -571,7 +577,6 @@ Selected variables:
 * `monthly.new.cases.per.100_max` - max monthly case rate reached prior to vaccination start
 * `monthly.new.deaths.per.100_max` - max monthly death rate reached prior to vaccination start
 * `monthly_new_cases_per_hundred_prevac` - last reported monthly case rate reached prior to vaccination start
-* `monthly_new_deaths_per_hundred_prevac` - last reported monthly death rate reached prior to vaccination start
 
 
 ```{r}
@@ -580,9 +585,9 @@ lm.covid.1 <- lm(VSI ~ cumulative_total_cases_per_hundred_prevac +
                    cumulative_total_deaths_per_hundred_prevac +
                    monthly.new.cases.per.100_max +
                    monthly.new.deaths.per.100_max +
-                   monthly_new_cases_per_hundred_prevac +
-                   monthly_new_deaths_per_hundred_prevac, data = data.train)
+                   monthly_new_cases_per_hundred_prevac, data = data.train)
 summary(lm.covid.1)
+Anova(lm.covid.1)
 
 #LOL only the intercept is significant, going to do some forward selection
 lm.covid.death <- lm(VSI ~ cumulative_total_deaths_per_hundred_prevac, data = data.train)
@@ -594,20 +599,10 @@ Anova(lm.covid.f2)
 # based on Anova, looks like cumulative_total_cases_per_hundred_prevac is the way to go
 lm.covid.case <- lm(VSI ~ cumulative_total_cases_per_hundred_prevac, data = data.train)
 summary(lm.covid.case)
-
-
-# #joelle's models:
-# lm.covid.1.refined <- lm(VSI ~ cumulative_total_deaths_per_hundred_prevac +
-#                            cumulative_total_cases_per_hundred_last +
-#                            monthly_new_deaths_per_hundred_last, data = data.train)
-# summary(lm.covid.1.refined)
-# 
-# lm.covid.1.refined.2 <- lm(VSI ~ cumulative_total_cases_per_hundred_last , data = data.train)
-# summary(lm.covid.1.refined.2)
 ```
 
 **corrected inputs, only intercept is significant now**
-Cumulative deaths per hundred prior to vaccination start, total number of cases and new deaths last reported prior to vaccination start appear to significantly impact `VSI`. After refining the model, the number of cases last reported prior to vaccination start appears to be the most important factor influencing `VSI`. Therefore, vaccination success seems influenced by a country's number of cases shortly before starting its vaccination campaign, where a higher number of cases leads to a better vaccination score. This could be explained by the fact that people may have a stronger vaccination incentive when COVID cases are more frequent around them.  
+*old: Cumulative deaths per hundred prior to vaccination start, total number of cases and new deaths last reported prior to vaccination start appear to significantly impact `VSI`. After refining the model, the number of cases last reported prior to vaccination start appears to be the most important factor influencing `VSI`. Therefore, vaccination success seems influenced by a country's number of cases shortly before starting its vaccination campaign, where a higher number of cases leads to a better vaccination score. This could be explained by the fact that people may have a stronger vaccination incentive when COVID cases are more frequent around them.*  
 
 #### Political and country development factors
 
@@ -616,42 +611,49 @@ Let's build a model focused on political factors as well as indices reflecting t
 Selected variables: 
 
 * `WorldRegion` - part of the world (more specific than continents)
-* `Electricity.Access_2018` - latest reported electricity access, may influence theinfrastructure available for vaccination
-* `GDP.PerCapita.Current_2018` - latest GDP per capita
-* `UrbanPopulation.Prop_3yr` - how urban is the population, averaged between 2015-2018
-* `LifeExpenctancy_2018` - latest life expectancy
-* `CompulsoryEducationDurationYears_3yr` - level of education, averaged between 2015-2018
-* `WomenInBusinessLawIndex_2018` - latest proportion of women working in law and business fields
+* `Electricity.Access_avg` - reported electricity access, may influence the infrastructure available for vaccination, averaged over 17 years
+* `GDP.PerCapita.Current_avg` - GDP per capita, averaged over 17 years
+* `UrbanPopulation.Prop_avg` - how urban is the population, averaged over 17 years
+* `LifeExpenctancy_avg` - life expectancy, averaged over 17 years
+* `CompulsoryEducationDurationYears_latest` - latest level of mandated education
+* `WomenInBusinessLawIndex_avg` - proportion of women working in law and business fields, averaged over 17 years
 * `WorldBankIncomeClass_avg` - categorical classifying as low, lower-middle, upper-middle, and high-income countries, averaged over 17 years
 * `RegimeType_avg` - categorical classifying as Closed Autocracy, Electoral Autocracy, Electoral Democracy, Liberal Democracy
-* `IndividualsUsingInternet_2018` - latest internet usage 
+* `IndividualsUsingInternet_latest` - latest internet usage 
 
 ```{r}
 # build political & country development index model
 lm.political.1 <- lm(VSI ~ WorldRegion +
-                   Electricity.Access_2018 +
-                   GDP.PerCapita.Current_2018 +
-                   UrbanPopulation.Prop_3yr +
-                   LifeExpenctancy_2018 + 
-                   CompulsoryEducationDurationYears_3yr +
-                   WomenInBusinessLawIndex_2018 +
+                   Electricity.Access_avg +
+                   GDP.PerCapita.Current_avg +
+                   UrbanPopulation.Prop_avg +
+                   LifeExpenctancy_avg + 
+                   CompulsoryEducationDurationYears_latest +
+                   WomenInBusinessLawIndex_avg +
                    WorldBankIncomeClass_avg +
                    RegimeType_avg +
-                   IndividualsUsingInternet_2018, 
+                   IndividualsUsingInternet_latest, 
                  data = data.train)
 
 summary(lm.political.1)
+Anova(lm.political.1)
 
-# remove non-significant variables
-lm.political.1.refined <- lm(VSI ~ WorldRegion + LifeExpenctancy_2018 + IndividualsUsingInternet_2018, data = data.train)
-Anova(lm.political.1.refined)
-lm.political.1.refined.2 <- lm(VSI ~ LifeExpenctancy_2018 + IndividualsUsingInternet_2018, data = data.train)
-summary(lm.political.1.refined.2)
-lm.political.1.refined.3 <- lm(VSI ~ LifeExpenctancy_2018, data = data.train)
-summary(lm.political.1.refined.3)
+# remove non-significant variables w backward selection
+lm.political.1.refined <- update(lm.political.1, .~. -GDP.PerCapita.Current_avg)
+#Anova(lm.political.1.refined)
+lm.political.2.refined <- update(lm.political.1.refined, .~. -WorldBankIncomeClass_avg)
+#Anova(lm.political.2.refined)
+lm.political.3.refined <- update(lm.political.2.refined, .~. -UrbanPopulation.Prop_avg)
+#Anova(lm.political.3.refined)
+lm.political.4.refined <- update(lm.political.3.refined, .~. -Electricity.Access_avg)
+#Anova(lm.political.4.refined)
+lm.political.5.refined <- update(lm.political.4.refined, .~. -IndividualsUsingInternet_latest)
+#Anova(lm.political.5.refined)
+lm.political.6.refined <- update(lm.political.5.refined, .~. -CompulsoryEducationDurationYears_latest)
+Anova(lm.political.6.refined)
 ```
 
-Life expectancy, world region and the number of individuals using internet (in 2018) seem to influence VSI. After refining the model by removing non-significant variables, life expectancy alone seemed to best explain VSI. 
+World region, and 17-year averages of life expectancy, women in business and law professions, and regime type seem to predict VSI.
 
 
 #### Full model
@@ -660,47 +662,55 @@ We will now use all relevant variables found in the economic, COVID burden and p
 
 Selected variables:
 
+* `GDP.PerCapita.Current_avg` - current GDP per capita, averaged over 17 years
 * `cumulative_total_cases_per_hundred_prevac` - last reported total number of cases prior to vaccination start
-* `GDP.PerCapita.Current_2018` - latest GDP per capita
-* `LifeExpenctancy_rel.diff` - change in health metric over time (tracks increase or decrease in pop health)
-
+* `WorldRegion` - part of the world (more specific than continents)
+* `LifeExpenctancy_avg` - life expectancy, averaged over 17 years
+* `WomenInBusinessLawIndex_avg` - proportion of women working in law and business fields, averaged over 17 years
+* `RegimeType_avg` - categorical classifying as Closed Autocracy, Electoral Autocracy, Electoral Democracy, Liberal Democracy
 
 ```{r}
 # build full model 
 lm.full <- lm(VSI ~ GDP.PerCapita.Current_avg +
              cumulative_total_cases_per_hundred_prevac +
-             LifeExpenctancy_2018,
+             WorldRegion +
+            LifeExpenctancy_avg +
+              WomenInBusinessLawIndex_avg +
+              RegimeType_avg,
              data = data.train)
 Anova(lm.full)
+summary(lm.full)
 
 # remove non-significant variables
-lm.full.refined <- lm(VSI ~ LifeExpenctancy_2018,
-             data = data.train)
-Anova(lm.full.refined)
+lm.full.1.refined <- update(lm.full, .~. -cumulative_total_cases_per_hundred_prevac)
+Anova(lm.full.1.refined)
+lm.full.2.refined <- update(lm.full.1.refined, .~. -GDP.PerCapita.Current_avg)
+Anova(lm.full.2.refined)
+summary(lm.full.2.refined)
 
 # plotting model diagnosis plots
-plot(lm.full.refined, 1:2)
-
+plot(lm.full.2.refined, 1:2)
 ```
-When using all relevant variables found in prior models, it turns out that life expectancy (reported in 2018) is the only variable having a significant effect on `VSI`. Diagnostic plots show that the model sufficiently fulfills linear model assumptions of normality and homoscedasticity. The relationship between life expectancy and VSI is plotted here: 
 
-**Question - do we want to be doing this on the full df because it has country but also includes the test and val subsets? Follow-up, do we want to run the final model separately on the test subset? Was it a bad idea and/or unnecessary to subset the data in the first place?**
+*rewrite this! think it makes sense to keep plot, since life expectancy is most predictive?* When using all relevant variables found in prior models, it turns out that life expectancy (reported in 2018) is the only variable having a significant effect on `VSI`. Diagnostic plots show that the model sufficiently fulfills linear model assumptions of normality and homoscedasticity. The relationship between life expectancy and VSI is plotted here: 
+
+
 
 ```{r}
 # get life expectancy p value
-lm.full.refined.summ <- summary(lm.full.refined)
-pval <- lm.full.refined.summ$coefficients[["LifeExpenctancy_2018", "Pr(>|t|)"]]
+lm.full.2.refined.summ <- summary(lm.full.2.refined)
+pval <- lm.full.2.refined.summ$coefficients[["LifeExpenctancy_avg", "Pr(>|t|)"]]
 
 # get life expectancy correlation with VSI
-cor_value <- cor(data.train$LifeExpenctancy_2018, data.train$VSI, use = "complete.obs")
+cor_value <- cor(data.train$LifeExpenctancy_avg, data.train$VSI, use = "complete.obs")
 
 plot_VSI_lifexp <- final.df %>% # using full df here to include country information 
-  ggplot(aes(x = LifeExpenctancy_2018, y = VSI)) +
+  ggplot(aes(x = LifeExpenctancy_avg, y = VSI)) +
   geom_point(aes(group = country, color = country), show.legend = FALSE) +
   geom_smooth(method = "lm", color = "grey") +
   theme_bw() +
-  ggtitle("Association between 2018 life expectancy and VSI") +
-  xlab("Life expectancy (2018)") +
+  ggtitle("Association between life expectancy and VSI") +
+  xlab("Life expectancy (average)") +
   annotate("text", x = 56, y = max(final.df["VSI"]) - 0.5, # position
            size = 4, # font size
            label = paste0("Correlation: ", sprintf("%.3f", cor_value), "\n", # correlation label
@@ -711,62 +721,18 @@ plot_VSI_lifexp
 ```
 
 
-## Removing Highly Correlated Variables
-
-```{r}
-#method from https://statisticsglobe.com/remove-highly-correlated-variables-from-data-frame-r
-#correlations
-wsd.corr <- data.train %>% 
-  select(-VSI) %>% # rm y
-  select(-contains(c("deaths", "cases"))) %>% #remove covid vars
-  select_if(., is.numeric) %>%
-  cor(., use="pairwise.complete.obs")
-#removing upper triangle
-wsd.corr[upper.tri(wsd.corr)] <- 0
-diag(wsd.corr) <- 0
-
-#correlations
-covid.corr <- data.train %>% 
-  select(-VSI) %>% # rm y
-  select(contains(c("deaths", "cases"))) %>% #only covid vars
-  select_if(., is.numeric) %>%
-  cor(., use="pairwise.complete.obs")
-#removing upper triangle
-covid.corr[upper.tri(covid.corr)] <- 0
-diag(covid.corr) <- 0
-
-#remove vars at abs(0.95) threshold - keeping high to preserve as many variables as possible (also b/c we expect things to be correlated IRL)
-covid.list <- apply(covid.corr, 2, function(x) any(abs(x) > 0.95))
-wsd.list <-  apply(wsd.corr, 2, function(x) any(abs(x) > 0.95))
-cor.list <- c(covid.list, wsd.list) #list highly correlated variables
-data.train.nocor <- data.train[ , !cor.list]
-head(data.train.nocor)
-
-#see how many of each type of summary var were preserved
-data.train.nocor %>% dplyr::select(contains("_max")) %>% ncol()
-data.train.nocor %>% dplyr::select(contains("_prevac")) %>% ncol()
-data.train.nocor %>% dplyr::select(contains("_rel.diff")) %>% ncol()
-data.train.nocor %>% dplyr::select(contains("_diff")) %>% ncol()
-data.train.nocor %>% dplyr::select(contains("_3yr")) %>% ncol()
-data.train.nocor %>% dplyr::select(contains("_2018")) %>% ncol()
-data.train.nocor %>% dplyr::select(contains("_avg")) %>% ncol()
-```
-
-
 ## LASSO model selection
 
-Let's now try a slightly more data-driven approach, i.e. using LASSO to select the most relevant variables. Using the `wsd.avg.vsi` 17 year average dataset.
-Could also potentially use `wsd.sum.wide` here that has all 4 types of variables (2018, 3y average, 17y average, 17y difference), but that would mean dropping some variables first as LASSO doesn't like NAs. 
+Let's now try a slightly more data-driven approach, i.e. using LASSO to select the most relevant variables. Dropping some variables first as LASSO doesn't like NAs. 
 
 ```{r}
-
-# remove all rows containing NAs (LASSO does not work without this step) - no NAs here it seems
-wsd.avg.vsi.sub <- na.omit(wsd.avg.vsi)
-nrow(wsd.avg.vsi.sub)
+# remove all rows containing NAs (LASSO does not work without this step) - lost 8 rows :(
+data.train.sub <- na.omit(data.train)
+nrow(data.train.sub)
 
 # create matrices to feed into gmnet
-Y <- as.matrix(wsd.avg.vsi.sub[, 1]) # extract Y (VSI)
-X <- model.matrix(VSI~., data = wsd.avg.vsi.sub)[, -1] # remove the first (interecept) column with only 1s
+Y <- as.matrix(data.train.sub[, 63]) # extract Y (VSI)
+X <- model.matrix(VSI~., data = data.train.sub)[, -63] # remove the first (interecept) column with only 1s
 
 # to control the randomness in K folds 
 set.seed(10)  
@@ -789,17 +755,15 @@ coef.1se
 coef.1se <- coef(lasso.avg, s="lambda.1se")  #s=c("lambda.1se","lambda.min") or lambda value
 coef.1se <- coef.1se[which(coef.1se != 0),]   # get the non=zero coefficients
 var.1se <- rownames(as.matrix(coef.1se))[-1] # output the variable names without intercept
-var.1se <- var.1se[-grep("RegimeType_avg", var.1se)] # remove the state levels
-wsd.avg.vsi.lasso <-  wsd.avg.vsi.sub %>%
-  select(c("RegimeType_avg", "VSI", var.1se)) # get a subset with response and LASSO output
+wsd.avg.vsi.lasso <-  data.train.sub %>%
+  select(c("VSI", var.1se)) # get a subset with response and LASSO output
 
 # run relaxed LASSO
 fit.1se.lm <- lm(VSI~., data = wsd.avg.vsi.lasso) 
 summary(fit.1se.lm) 
-
 ```
 
-LASSO results using the `wsd.avg.vsi` suggest the same variables found with linear models. 
+LASSO results using the suggest similar variables found with linear models. *maybe elaborate here*
 
 ## Trees & Random Forests
 
@@ -807,12 +771,11 @@ Now, we will try to use tree based methods (single decision tree and random fore
 
 First, we will try using a single regression tree. 
 
-THIS CHUNK REMOVES BAD VARIABLES - FEEL FREE TO MOVE IT ELSEWEHERE 
+*frankly not certain which dfs are supposed to go to which chunks, but at this point all data.train, data.test, etc, have been cleared of highly correlated variables. Completion is high in data.train but if na.omit is needed can pull data.train.sub defined in LASSO chunk above. Or use data.train.test, since OOB will predict testing error and we can skip*
 ```{r}
-cleaned.data.train <- dplyr::select(data.train.nocor, -contains(c("_rel.diff", "_diff", "_2018", "_3yr")))
-skimr::skim(cleaned.data.train)
+# cleaned.data.train <- dplyr::select(data.train.nocor, -contains(c("_rel.diff", "_diff", "_2018", "_3yr")))
+# skimr::skim(cleaned.data.train)
 ```
-
 
 ```{r, fig.height=6, fig.width=15}
 single.tree1 <- tree(VSI ~ ., cleaned.data.train, control=tree.control(nobs=nrow(cleaned.data.train),
@@ -831,7 +794,7 @@ tree.mse <- mean((data.test$VSI - tree.test.prediction)^2) # calculate mean squa
 tree.mse
 ```
 
-Our mean squared prediction error using a single tree is `tree.mse`! That is quite high, though not surprising, given the complexity of the question. Now, let's try something more robust. While an advantage of using a single tree is that we can see which variables are diving our prediction, Random Forest may provide better results at the cost of interpretability.  
+Our mean squared prediction error using a single tree is `r tree.mse`! That is quite high, though not surprising, given the complexity of the question. Now, let's try something more robust. While an advantage of using a single tree is that we can see which variables are diving our prediction, Random Forest may provide better results at the cost of interpretability.  
 
 Now we will tune and train a Random Forest model. 
 
@@ -839,7 +802,7 @@ Let us tune the parameters mtry (number of variables to sample) and ntree (numbe
 
 ```{r}
 set.seed(1) # for reproducibility, we set the seed
-fit.1.rf <- randomForest(VSI~., cleaned.data.train, mtry=6, ntree=500)
+fit.1.rf <- randomForest(VSI~., data.train.sub, mtry=6, ntree=500)
 plot(fit.1.rf$mse, xlab="Number of Trees", col="red", ylab="OOB MSE") 
 title(main = "OOB Test Error by Number of Trees Used")
 ```
@@ -847,11 +810,11 @@ Based on out of bag error, it seems that 100 trees is sufficient. Now, let's tun
 
 ```{r}
 set.seed(10)
-max.mtry <- ncol(cleaned.data.train)  
+max.mtry <- ncol(data.train.sub)  
 error.p <- 1:max.mtry 
 for (p in 1:max.mtry)  
 {
-  rf.temp <- randomForest(VSI~., cleaned.data.train, mtry=p, ntree=100)
+  rf.temp <- randomForest(VSI~., data.train.sub, mtry=p, ntree=100)
   error.p[p] <- rf.temp$mse[100]  
 }
 plot(1:max.mtry, error.p,
@@ -864,7 +827,7 @@ An mtry of around 20 seems to provide good results, so we will use this as our p
 
 ```{r}
 set.seed(2) 
-fit.final.rf <- randomForest(VSI~., cleaned.data.train, mtry=20, ntree=100)
+fit.final.rf <- randomForest(VSI~., data.train.sub, mtry=20, ntree=100)
 plot(fit.final.rf)
 ```
 
@@ -876,46 +839,9 @@ rf.mse <- mean((data.test$VSI - rf.test.prediction)^2) # calculate mean squared 
 rf.mse
 ```
 
-Our final Testing MSE from the Random Forest model is `rf.mse`. This is much better than the single tree. While our final testing error is still somewhat high, Random Forest can achieve a somewhat accurate estimate of a nation's COVID vaccination success, given social and economic factors prior to the pandemic, and COVID case data prior to the start of vaccination campaigns. 
+Our final Testing MSE from the Random Forest model is `r rf.mse`. This is much better than the single tree. While our final testing error is still somewhat high, Random Forest can achieve a somewhat accurate estimate of a nation's COVID vaccination success, given social and economic factors prior to the pandemic, and COVID case data prior to the start of vaccination campaigns. 
 
-## Neural Networks
-
-### Linear Models
-
-Building a couple linear models:
-
-Picking variables for backward selection:
-* `Continent`
-* `Electricity.Access_3yr` - since this would be related to infrastructure used for vaccination
-* `cumulative_total_cases_per_hundred_prevac` - index of disease prevalence
-* `cumulative_total_deaths_per_hundred_prevac` - index of disease severity
-* `weekly.new.deaths.per.100_max` - max weekly death rate
-* `GDP.PerCapita.Current_2018` - latest GDP per capita
-* `UrbanPopulation.Prop_3yr` - how urban is pop
-* `LifeExpenctancy_rel.diff` - change in health metric over time (tracks increase or decrease in pop health)
-* `Trade.GDP_3yr` - see how much of economy is based in trade
-* `CompulsoryEducationDurationYears_3yr` - level of education
-
-Couple forward selections:
-```{r}
-fit1 <- lm(VSI ~ GDP.PerCapita.Current_2018, data.train)
-Anova(fit1)
-fit2 <- update(fit1, .~. + UrbanPopulation.Prop_3yr)
-Anova(fit2)
-fit3 <- update(fit2, .~. + cumulative_total_deaths_per_hundred_prevac)
-Anova(fit3) #cumulative_total_deaths_per_hundred_prevac not significant
-
-
-#try interactions
-fit4 <- lm(VSI ~ GDP.PerCapita.Current_2018 + Continent + GDP.PerCapita.Current_2018*Continent, data.train)
-Anova(fit4)
-
-fit5 <- lm(VSI ~ GDP.PerCapita.Current_2018 + weekly.new.deaths.per.100_max + GDP.PerCapita.Current_2018*weekly.new.deaths.per.100_max, data.train)
-Anova(fit5)
-```
-
-
-### Regsubsets
+## Regsubsets
 
 Running regsubsets:
 
@@ -939,7 +865,7 @@ plot(fit2, 2) #normality
 ```
 
 
-### Neural Nets
+## Neural Networks
 
 Attempting neural nets:
 
@@ -965,7 +891,6 @@ Imputing & setting x and y data as matrixes
 #need to impute over NAs, using missForest for now
 data.nn.train <- data.train.test %>% 
   mutate(across(where(is_character),as_factor)) %>% 
-  dplyr::select(-c(Country.Code, country)) %>% #remove country
   select_if(funs(!is.Date(.)))
 data.nn.trainimp <- missForest(data.nn.train, variablewise = TRUE)
 data.nn.trainimp$ximp
@@ -980,7 +905,7 @@ setdiff(names(data.nn.train), names(nn.trainimp)) #see what cols were lost
 # dim(na.omit(data.nn.train)) #or dropping rows with NAs, which would mean only 17 countries
 
 ## training input/y: need to be matrix/vector
-data_xtrain <- nn.trainimp[, -99] %>% select_if(is.numeric)  #dim(data3_xtrain), remove y ~may need to set dummy vars - just grabbing numeric for now to test!
+data_xtrain <- nn.trainimp[, -99] %>% select_if(is.numeric)  #dim(data3_xtrain), remove y
 data_ytrain <- nn.trainimp[, 99]   # find y
 data_xtrain <- as.matrix(data_xtrain) # make sure it it is a matrix
 data_ytrain <- as.matrix(data_ytrain) # make sure it it is a matrix
