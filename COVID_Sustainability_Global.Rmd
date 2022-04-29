@@ -776,7 +776,7 @@ Now, we will try to use tree based methods (single decision tree and random fore
 
 First, we will try using a single regression tree. 
 
-```{r, fig.height=6, fig.width=15}
+```{r, fig.height=8, fig.width=17}
 single.tree1 <- tree(VSI ~ ., data.train.sub, control=tree.control(nobs=nrow(data.train.sub),
                                               minsize=4,     
                                               mindev=0.009))
@@ -785,18 +785,7 @@ text(single.tree1, pretty = 1)
 title("Single Tree | VSI Prediction")
 ```
 
-Now that we've generated our tree, let's see how well it does at predicting unseen data. 
-
-```{r}
-# no more data.test - can split data.train before running single tree if you want
-tree.test.prediction <- predict(single.tree1, newdata = data.test)
-tree.mse <- mean((data.test$VSI - tree.test.prediction)^2) # calculate mean squared prediction error
-tree.mse
-```
-
-Our mean squared prediction error using a single tree is `r tree.mse`! That is quite high, though not surprising, given the complexity of the question. Now, let's try something more robust. While an advantage of using a single tree is that we can see which variables are diving our prediction, Random Forest may provide better results at the cost of interpretability.  
-
-Now we will tune and train a Random Forest model. 
+While an advantage of using a single tree is that we can see which variables are diving our prediction, Random Forest may provide better results at the cost of interpretability. Accordignly, now we will tune and train a Random Forest model. 
 
 Let us tune the parameters mtry (number of variables to sample) and ntree (number of trees to use). First, we will tune ntree. 
 
@@ -823,24 +812,16 @@ plot(1:max.mtry, error.p,
      ylab="OOB MSE")
 lines(1:max.mtry, error.p)
 ```
-An mtry of around 20 seems to provide good results, so we will use this as our parameter. Now, we train the final Random Forest model based on our tuned parameters.
+An mtry of around 30 seems to provide good results, so we will use this as our parameter. Now, we train the final Random Forest model based on our tuned parameters.
 
 ```{r}
 set.seed(2) 
-fit.final.rf <- randomForest(VSI~., data.train.sub, mtry=20, ntree=100)
+fit.final.rf <- randomForest(VSI~., data.train.sub, mtry=30, ntree=100)
 plot(fit.final.rf)
 ```
 
-Due to the bootstrapping of samples done by Random Forest, we could use our OOB error as testing error, but for the sake of consistency, we will use our testing dataset to calculate Mean Squared Prediction Error. 
+The final Random Forest model, now that it's been tuned, is performing with an Out-Of-Bag Testing error of `fit.final.rf$mse[100]`. While our final testing error is still somewhat high, Random Forest can achieve a somewhat accurate estimate of a nation's COVID vaccination success, given social and economic factors prior to the pandemic, and COVID case data prior to the start of vaccination campaigns. 
 
-```{r}
-#again, no more data.test
-rf.test.prediction <- predict(fit.final.rf, newdata = data.test)
-rf.mse <- mean((data.test$VSI - rf.test.prediction)^2) # calculate mean squared prediction error
-rf.mse
-```
-
-Our final Testing MSE from the Random Forest model is `r rf.mse`. This is much better than the single tree. While our final testing error is still somewhat high, Random Forest can achieve a somewhat accurate estimate of a nation's COVID vaccination success, given social and economic factors prior to the pandemic, and COVID case data prior to the start of vaccination campaigns. 
 
 ## Regsubsets
 
