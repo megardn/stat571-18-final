@@ -460,6 +460,38 @@ We can see that Somalia appears to be the country with the lowest VSI, and Cuba 
 
 *Joelle to add worldmap of VSI*
 
+*validate VSI by showing assoc of VSI with lower mortality once vac starts (deaths last - deaths @ start date for all vac)*
+
+```{r}
+#global start-date for vaccination
+first.vac <- min(na.omit(covid$date.first.vac))
+
+#find deaths occuring post gobal start of vaccinations 
+postvac.case <- covid %>%
+  arrange(date) %>%
+  dplyr::select(country, date, cumulative_total_cases_per_hundred) %>%
+  group_by(country) %>%
+  subset(date==first.vac | date==max(date)) %>%
+  filter(n() >= 2) %>% #make sure country has data for both years
+  mutate(postvac.case.per.hundred = cumulative_total_cases_per_hundred - lag(cumulative_total_cases_per_hundred)) %>%
+  ungroup %>%
+  dplyr::select(country, postvac.case.per.hundred) %>%
+  drop_na()
+
+yval <- vac.sum.with.VSI %>% dplyr::select("country", "VSI")
+VSI.val <- inner_join(postvac.case, yval,  by=("country"))
+
+vsi.lm <- lm(postvac.case.per.hundred ~ VSI, data=VSI.val)
+summary(vsi.lm)
+
+plot_VSI_postvac.case <- VSI.val %>%
+  ggplot(aes(x = postvac.case.per.hundred, y = VSI)) +
+  geom_point(aes(group = country, color = country), show.legend = FALSE) +
+  geom_smooth(method = "lm", color = "grey") +
+  theme_bw()
+ggplotly(plot_VSI_postvac.case)
+```
+
 # Compiling Dataset
 
 We'll write our final dataset by joining our WSD predictors, prevax COVID case & death predictors, and VSI. 
@@ -500,7 +532,7 @@ df.pred <- final.df %>% dplyr::select(-c(country, Continent, Country.Code, Year_
   
 set.seed(10)
 
-# Split data to three portions of .6, .2 and .2 of data size N
+# Split data
 idx_train <- sample(N, n1)
 idx_val <- (which(! seq(1:N) %in% idx_train))
 data.train <- as.data.frame(df.pred[idx_train,])
@@ -825,107 +857,48 @@ The final Random Forest model, now that it's been tuned, is performing with an O
 
 ## Regsubsets
 
-Running regsubsets:
+Running regsubsets to optimize a model by minimizing Cp. 
+We do get a warning that regsubsets still finds our data to be colinear, so we re-run correlation reduction with 95% cutoff on `data.train` to whether we can build a more optimal model. While this alternate model does better in modeling VSI (see *Comparing Regsubsets Models* in the Appendix), we felt this improvement in performance was not worth the lack of comparability with LASSO, RF and other models built on the full `data.train` set of predictors.  
 
 ```{r}
-fit1 <- regsubsets(VSI ~., data.train , nvmax=25, method="forward", really.big = TRUE)
+regsub.fit1 <- regsubsets(VSI ~., data.train , nvmax=25, method="forward", really.big = TRUE)
 f.e <- summary(fit1)
+plot(f.e$cp, xlab="Number of predictors", 
+     ylab="Cp", col="red", pch=16)
+
 opt.size <- which.min(f.e$cp) #pick size with lowest cp
-fit.var <- f.e$which # logic indicators which variables are in
+regsub.fit.var <- f.e$which # logic indicators which variables are in
 
 regsub.vars <- colnames(fit.var)[fit.var[opt.size,]][-1] # output variables selected
 regsub.vars
 
-fit1.lm <- lm(VSI ~ LifeExpenctancy_avg, data.train)
+fit1.lm <- lm(VSI ~ WorldRegion +
+                WorldBankIncomeClass_latest +
+                WorldBankIncomeClass_avg +
+                Govt.FinalConsumptionExpenditure.GDP_latest +
+                WomenInBusinessLawIndex_avg +
+                LifeExpenctancy_avg +
+                cumulative_total_cases_prevac +
+                weekly_new_deaths_per_hundred_prevac, data.train)
 Anova(fit1.lm)
 ```
 
+Now let's try some backward selection on this model:
 
 ```{r}
-#subset data.train & data.test together since Cp will approx test error -
-#seems that regsubsets still takes issue with our data being too colinear, will re-run reduction with 90% cutoff on data.train.test to test
-
-#stash year and non-numeric variables
-dtt.fac <- data.train.test %>%
-  select(negate(is.numeric)| "Year_latest", "nYears_avg")
-
-#plot
-# create correlation plot to see whether some variables are highly correlated (not tolerated by lm)
-#get colinearities
-dtt.num <- data.train.test %>%
-  select(-c("Year_latest", "nYears_avg")) %>%
-  select_if(., is.numeric)
-dtt.corr <- dtt.num %>%
-  cor(., use="pairwise.complete.obs")
-#removing upper triangle
-dtt.corr[upper.tri(dtt.corr)] <- 0
-diag(dtt.corr) <- 0
-
-#remove vars at abs(0.9) threshold
-dtt.list <-  apply(dtt.corr, 2, function(x) any(abs(x) > 0.95)) #list highly correlated variables
-dtt.nocor <- dtt.num[ , !dtt.list]
-#add back factors
-dtt.nocor <- cbind(dtt.fac, dtt.nocor)
-dim(dtt.nocor)
-head(dtt.nocor)
+fit1.lm.refined <- update(fit1.lm, .~. -weekly_new_deaths_per_hundred_prevac)
+Anova(fit1.lm.refined)
+fit1.lm.2.refined <- update(fit1.lm.refined, .~. -WorldBankIncomeClass_avg)
+Anova(fit1.lm.2.refined)
+fit1.lm.3.refined <- update(fit1.lm.2.refined, .~. -cumulative_total_cases_prevac)
+Anova(fit1.lm.3.refined)
 ```
 
-
-```{r, warning=FALSE}
-fit2 <- regsubsets(VSI ~., dtt.nocor , nvmax=25, method="forward", really.big = TRUE)
-f.e2 <- summary(fit2)
-opt.size2 <- which.min(f.e2$cp) #pick size with lowest cp
-fit.var2 <- f.e$which # logic indicators which variables are in
-
-regsub.vars2 <- colnames(fit.var2)[fit.var2[opt.size2,]][-1] # output variables selected
-# regsub.vars2 <- regsub.vars2[-grep("WorldRegion", regsub.vars2)] # remove levels - prob cleaner way to do this
-# regsub.vars2 <- regsub.vars2[-grep("WorldBankIncomeClass", regsub.vars2)] # remove levels
-# regsub.vars2 <- regsub.vars2[-grep("RegimeType", regsub.vars2)] # remove levels
-# dtt.reg <-  data.train.test %>%
-#   select(c("RegimeType_latest", "WorldRegion", "WorldBankIncomeClass_latest", "WorldBankIncomeClass_avg", "VSI", regsub.vars2)) # get a subset with response and regsub vars
-
-fit2.lm <- lm(VSI ~ RegimeType_latest + 
-                WorldRegion + 
-                WorldBankIncomeClass_latest +
-                WorldBankIncomeClass_avg +
-                Year_latest +
-                nYears_avg +
-                Adj.SavingNetCO2Damage_latest +
-                CompulsoryEducationDurationYears_latest +
-                ImportGoodsServices.GDP_latest +
-                ConsumerPriceInflation_latest +
-                Electricity.Access_avg +
-                Adj.SavingNetCO2Damage_avg +
-                ConsumerPriceInflation_avg +
-                LifeExpenctancy_avg +
-                TotalNaturalResources.GDP_avg +
-                weekly_new_deaths_max +
-                weekly.new.cases.per.100_max +
-                weekly.new.deaths.per.100_max +
-                daily_new_cases_per_hundred_prevac +
-                cumulative_total_cases_per_hundred_prevac
-              , data.train.test)    # fit with selected variables - maybe rm Year variables? logically shouldnt predict....
-Anova(fit2.lm) 
-#note - not all significant but should stick with model minimizing Cp, right?
-
-#check assumptions
-par(mfrow=c(1,2))
-plot(fit2.lm, 1) #linearity & homoscedasticity
-plot(fit2.lm, 2) #normality
-
-#compare models - refitting on na.omit df, otherwise can't compare
-fit1.lm.comp <- update(fit1.lm, .~., data=na.omit(data.train.test))
-fit2.lm.comp <- update(fit2.lm, .~., data=na.omit(data.train.test))
-anova(fit1.lm.comp, fit2.lm.comp)
-```
-
-Looks like `fit2.lm.comp` is a better model
+Reducing to only significantly predictive variables, we find they are fairly similar to those identified by our full linear model. *make sure this is still true once Joelle refines*. This is reassuring to have our data-driven model identify similar predictors to our hypothesis-driven models. 
 
 ## Neural Networks
 
-Attempting neural nets:
-
-**may need to set dummy vars for categorical**
+Next, we'll run neural nets. Though the data has high completion to begin with (only `r (sum(is.na(final.df))/(99*66))*100`% missing in `df.pred`), neural nets cannot take NA inputs. Because the benefits of NN arise in large datasets, and our data is relatively small to begin with, we'll impute missing values prior to building, training and fitting our network. 
 
 Defining neural nets:   
   + normalization
@@ -936,43 +909,43 @@ Defining neural nets:
 Resources used:
 https://www.tensorflow.org/tutorials/keras/regression
 https://tensorflow.rstudio.com/reference/keras/layer_batch_normalization/
+https://tensorflow.rstudio.com/tutorials/beginners/basic-ml/tutorial_basic_regression/
 https://machinelearningmastery.com/how-to-choose-loss-functions-when-training-deep-learning-neural-networks/
 https://stackoverflow.com/questions/37232782/nan-loss-when-training-regression-network
 https://rstudio-pubs-static.s3.amazonaws.com/344055_0c737f77c0ef4e36b6865cb843a7bb4a.html
 https://keras.io/api/metrics/regression_metrics/
+https://towardsdatascience.com/keras-and-r-predicting-blood-glucose-levels-with-the-sequential-model-596efe89a6b8
 
-Imputing & setting x and y data as matrixes
+Imputing, setting dummy vars & re-subsetting `data.imp.train` and `data.imp.val`.
+
 ```{r}
 #skim(data.train.test)
 #need to impute over NAs, using missForest for now
-data.nn.train <- data.train.test %>% 
-  mutate(across(where(is_character),as_factor)) %>% 
-  select_if(funs(!is.Date(.))) #drop dates, can't be imputed
-data.nn.trainimp <- missForest(data.nn.train, variablewise = TRUE)
-data.nn.trainimp$ximp
-data.nn.trainimp$OOBerror #high :(
+df.pred.nn <- df.pred %>% 
+  mutate(across(where(is_character),as_factor))
+df.pred.imp <- missForest(df.pred.nn) #variablewise = TRUE
+df.pred.imp$OOBerror #looks good!
 
-#select only cols with missForest OOB MSE below 25%
-good.predict <- which(data.nn.trainimp$OOBerror < 0.25) %>% unname()
-nn.trainimp <- data.nn.trainimp$ximp[, c(good.predict)]
-setdiff(names(data.nn.train), names(nn.trainimp)) #see what cols were lost
-dim(nn.trainimp) #imputing gives us 89 cols to work with
-dim(data.nn.train[ , colSums(is.na(data.nn.train)) == 0]) #as opposed to dropping all NA cols, which only gives us 57
-dim(na.omit(data.nn.train)) #or dropping rows with NAs, which would mean only 19 countries
+nn.imp <- as.data.frame(df.pred.imp$ximp)
+dim(nn.imp) #imputing retains all 61 cols
+dim(df.pred[ , colSums(is.na(df.pred)) == 0]) #as opposed to dropping all NA cols, which only gives us 41
+dim(na.omit(df.pred)) #or dropping rows with NAs, which would mean only 87 countries
 
 #set dummy variables for categorical
-nn.train.final <- dummy_cols(nn.trainimp, remove_first_dummy = TRUE) %>% #setting remove_first_dummy = TRUE to have base levels
+nn.imp.dummy <- dummy_cols(nn.imp, remove_first_dummy = TRUE) %>% #setting remove_first_dummy = TRUE to have base levels
  select_if(funs(!is.factor(.))) #drop original factors
 
-## training input/y: need to be matrix/vector
-data_xtrain <- nn.train.final %>% dplyr::select(-VSI) %>% as.matrix()  #dim(data3_xtrain)
-data_ytrain <- nn.train.final %>% dplyr::select(VSI) %>% as.matrix()  # find y
+#splitting into train and val using same indices from original data.train and data.val split
+nn.train <- as.data.frame(nn.imp.dummy[idx_train,])
+nn.val <- as.data.frame(nn.imp.dummy[idx_val,])
 
-# ## validation input/y - figure this out with impute/dummy vars later!
-# data_xval <- data.val[, -204]   #dim(data3_xtrain), remove y
-# data_yval <- data.val[, 204]   # find y
-# data_xval <- as.matrix(data_xval) # make sure it it is a matrix
-# data_yval <- as.matrix(data_yval) # make sure it it is a matrix
+## training input/y: need to be matrix/vector
+data_xtrain <- nn.train %>% dplyr::select(-VSI) %>% as.matrix()
+data_ytrain <- nn.train %>% dplyr::select(VSI) %>% as.matrix()  # find y
+
+# ## validation input/y
+data_xtrain <- nn.val %>% dplyr::select(-VSI) %>% as.matrix()
+data_ytrain <- nn.val %>% dplyr::select(VSI) %>% as.matrix()
 ```
 
 
@@ -985,71 +958,23 @@ set_random_seed(10)
 p <- dim(data_xtrain)[2] # number of input variables (columns)
 model <- keras_model_sequential() %>%
   layer_batch_normalization(input_shape = c(p)) %>% #recommended, not certain it's correct
-  layer_dense(units = 24, activation = "relu") %>%
-  layer_dropout(0.25) %>% # drop 20% - https://stackoverflow.com/questions/37232782/nan-loss-when-training-regression-network
-  layer_dense(units = 26, activation = "relu") %>%  
-  layer_dropout(0.25) %>% # drop 20%
+  layer_dense(units = 32, activation = "relu") %>%
+  layer_dropout(0.25) %>% # https://stackoverflow.com/questions/37232782/nan-loss-when-training-regression-network
+  layer_dense(units = 12, activation = "relu") %>%  
+  layer_dropout(0.25) %>% 
   layer_dense(units = 1, activation = "linear") # output = 1 unit for linear(?) regression
 print(model)
 
-# #compile the Model (based on https://www.tensorflow.org/tutorials/keras/regression)
-# model %>% compile(
-#   optimizer = "adam",
-#   loss = "mean_squared_error",
-#   metrics = list("mean_squared_error"),
-# )
-
-#compile model B (based on https://tensorflow.rstudio.com/tutorials/beginners/basic-ml/tutorial_basic_regression/)
+#compile mode
 model %>%
   compile(
     loss = "mse",
-    optimizer = optimizer_rmsprop(),
+    optimizer = optimizer_rmsprop(), #alternative "adam"
     metrics = list("mean_absolute_error")
   )
-
-# #compile model C (based on https://towardsdatascience.com/keras-and-r-predicting-blood-glucose-levels-with-the-sequential-model-596efe89a6b8)
-# model %>% compile(
-#   loss = 'mean_squared_error',
-#   optimizer = 'adam',
-#   metrics = c('mae')
-# )
 ```
 
 Fitting model
-
-good (?) params: 
-12x12x1, model B, epochs=150 & batch size=50 @ epoch 20
-  - loss = 1.95, val_loss = 3.73
-12x12x1, model B, epochs=150 & batch size=32 @ epoch 20
-  - loss = 1.92, val_loss = 3.71
-12x12x1, model B, epochs=150 & batch size=24 @ epoch 20
-  - loss = 1.73, val_loss = 3.46
-12x12x1, model B, epochs=150 & batch size=18 @ epoch 20
-  - loss = 1.48, val_loss = 3.32
-12x12x1, model B, epochs=150 & batch size=12 @ epoch 20
-  - loss = 1.67, val_loss = 2.93
-*16x8x1, model B, epochs=150 & batch size=12 @ epoch 20*
-  - loss = 1.23, val_loss = 2.1
-*16x8x1, model B, epochs=150 & batch size=24 @ epoch 20*
-  - loss = 1.1, val_loss = 2.4
-16x8x1, model B, epochs=150 & batch size=24 @ epoch 20
-  - loss = 1.15, val_loss = 2.65
-16x8x1, model C, epochs=150 & batch size=36 @ epoch 20
-  - loss = 1.3, val_loss = 2.83
-16x8x1, model C, epochs=150 & batch size=24 @ epoch 20
-  - loss = 1.18, val_loss = 2.41
-16x8x1, model C, epochs=150 & batch size=12 @ epoch 20
-  - loss = 1.24, val_loss = 2.06 - looks gross though
-16x8x1, model B, epochs=150 & batch size=12 @ epoch 20 w / dropout
-  - loss = 1.75, val_loss = 2.2
-24x16x1, model B, epochs=150 & batch size=12 @ epoch 20
-  - loss = 1.16, val_loss = 1.94
-24x16x1, model B, epochs=150 & batch size=12 @ epoch 20 w/ dropout
-  - loss = 1.81, val_loss = 1.93
-24x16x1, model B, epochs=150 & batch size=24 @ epoch 20
-  - loss = 0.83, val_loss = 3.24
-24x16x1, model B, epochs=150 & batch size=24 @ epoch 20 w/ dropout 25%
-  - loss = 1.78, val_loss = 2.4
 
 ```{r}
 set_random_seed(10)
@@ -1057,14 +982,54 @@ fit.nn <- model %>% fit(
   data_xtrain,
   data_ytrain,
   epochs = 150,
-  batch_size = 24,
+  batch_size = 12,
   validation_split = .15 # set 15% of the data_xtrain, data_ytrain as the validation data
 )
 
 plot(fit.nn)
-fit.nn$metrics$loss[20]
-fit.nn$metrics$val_loss[20]
+min.epoch <- which.min(fit.nn$metrics$val_loss)
+fit.nn$metrics$val_loss[min.epoch]
+fit.nn$metrics$loss[min.epoch]
 ```
+
+The lowest MSE calculated on the internal validation sample (15% of `data.train` that's been cleaned, imputed and normalized for NN input) is `r fit.nn$metrics$val_loss[min.epoch]` at the `r min.epoch`. Now that we've defined our model, we can refit it without the internal validation split and using `r min.epoch` epochs.
+
+```{r}
+# set seed for keras
+set_random_seed(10)
+#build model
+p <- dim(data_xtrain)[2] # number of input variables (columns)
+model <- keras_model_sequential() %>%
+  layer_batch_normalization(input_shape = c(p)) %>% #recommended, not certain it's correct
+  layer_dense(units = 32, activation = "relu") %>%
+  layer_dropout(0.25) %>% #
+  layer_dense(units = 12, activation = "relu") %>%  
+  layer_dropout(0.25) %>% 
+  layer_dense(units = 1, activation = "linear") # output = 1 unit for linear(?) regression
+print(model)
+#compile mode
+model %>%
+  compile(
+    loss = "mse",
+    optimizer = optimizer_rmsprop(), #alternative "adam"
+    metrics = list("mean_absolute_error")
+  )
+
+set_random_seed(10)
+fit.nn.full <- model %>% fit(
+  data_xtrain,
+  data_ytrain,
+  epochs = min.epoch,
+  batch_size = 12)
+
+fit.nn.full$metrics$loss[min.epoch]
+```
+
+The MSE of this model is now `r fit.nn.full$metrics$loss[min.epoch]`, slightly lower than the training loss on the original (MSE at epoch 65 = `r fit.nn$metrics$loss[min.epoch]`).
+
+## Bagging
+
+Now we'll attempt to create the best model by bagging those created above.
 
 # Appendix
 
@@ -1234,3 +1199,69 @@ data.val_diff <- data.val %>% dplyr::select(-c(contains("_2018") | contains("_3y
 data.train.test_diff <- data.train.test %>% dplyr::select(-c(contains("_2018") | contains("_3yr") | contains("_avg")))
 ```
 
+## Comparing Regsubsets Models
+
+
+```{r}
+#stash year and non-numeric variables
+dtt.fac <- data.train %>%
+  select(negate(is.numeric))
+
+#plot
+# create correlation plot to see whether some variables are highly correlated (not tolerated by lm)
+#get colinearities
+dtt.num <- data.train %>%
+  select_if(., is.numeric)
+dtt.corr <- dtt.num %>%
+  cor(., use="pairwise.complete.obs")
+#removing upper triangle
+dtt.corr[upper.tri(dtt.corr)] <- 0
+diag(dtt.corr) <- 0
+
+#remove vars at abs(0.9) threshold
+dtt.list <-  apply(dtt.corr, 2, function(x) any(abs(x) > 0.95)) #list highly correlated variables
+dtt.nocor <- dtt.num[ , !dtt.list]
+#add back factors
+dtt.nocor <- cbind(dtt.fac, dtt.nocor)
+dim(dtt.nocor)
+head(dtt.nocor)
+
+#fit model
+regsub.fit2 <- regsubsets(VSI ~., dtt.nocor , nvmax=25, method="forward", really.big = TRUE)
+f.e2 <- summary(regsub.fit2)
+opt.size2 <- which.min(f.e2$cp) #pick size with lowest cp
+fit.var2 <- f.e$which # logic indicators which variables are in
+
+regsub.vars2 <- colnames(fit.var2)[fit.var2[opt.size2,]][-1] # output variables selected
+# regsub.vars2 <- regsub.vars2[-grep("WorldRegion", regsub.vars2)] # remove levels - prob cleaner way to do this
+# regsub.vars2 <- regsub.vars2[-grep("WorldBankIncomeClass", regsub.vars2)] # remove levels
+# regsub.vars2 <- regsub.vars2[-grep("RegimeType", regsub.vars2)] # remove levels
+# dtt.reg <-  data.train.test %>%
+#   select(c("RegimeType_latest", "WorldRegion", "WorldBankIncomeClass_latest", "WorldBankIncomeClass_avg", "VSI", regsub.vars2)) # get a subset with response and regsub vars
+
+fit2.lm <- lm(VSI ~ RegimeType_avg + 
+                WorldRegion + 
+                WorldBankIncomeClass_latest +
+                WorldBankIncomeClass_avg +
+                Govt.FinalConsumptionExpenditure.GDP_latest +
+                GrossNationalExpenditure.GDP_avg +
+                WomenInBusinessLawIndex_avg +
+                RegimeType_avg +
+                LifeExpenctancy_avg +
+                UrbanPopulation.Prop_avg +
+                cumulative_total_cases_prevac +
+                weekly_new_deaths_per_hundred_prevac
+              , data.train)    # fit with selected variables
+Anova(fit2.lm) 
+#note - not all significant but should stick with model minimizing Cp, right?
+
+#check assumptions
+par(mfrow=c(1,2))
+plot(fit2.lm, 1) #linearity & homoscedasticity
+plot(fit2.lm, 2) #normality
+
+#compare models - refitting on na.omit df, otherwise can't compare
+fit1.lm.comp <- update(fit1.lm, .~., data=na.omit(data.train))
+fit2.lm.comp <- update(fit2.lm, .~., data=na.omit(data.train))
+anova(fit1.lm.comp, fit2.lm.comp)
+```
