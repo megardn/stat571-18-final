@@ -35,6 +35,82 @@ pacman::p_load(tidyverse, dplyr, ggplot2, ggthemes, data.table, lubridate,
 ```
 
 
+# Data Preprocessing
+
+Before starting to do more involved EDA, we will preprocess our data to ensure we have wokable datasets to begin our exploration with. 
+
+First, we will begin to process the World Sustainability Dataset. Let's read in the raw data and take a look at a few rows to get a sense of what it looks like. 
+```{r}
+data.raw <- read.csv('data/WorldSustainabilityDataset.csv', header = TRUE)
+```
+
+There are some missing elements labeled as empty instead of NA. Let's fix this before proceeding.
+```{r}
+data.raw[data.raw == ""] <- NA
+```
+
+There are quite a few NAs. Let's get fields have at least a 90% complete rate. 
+```{r}
+data.90 <- data.raw[, apply(data.raw, 2, function(col)sum(is.na(col))/length(col)) < 0.10]
+```
+
+Let's make sure that removing the rows with missing values in these remaining fields will give us a sufficient number of countries to use. 
+
+```{r}
+data.processed <- na.omit(data.90)
+# How many countries?
+n.countries <- length(unique(data.processed$Country.Name))
+n.countries
+```
+
+After cleaning, we are left with `n.countries` countries, which is a workable amount. 
+
+Ok good, now let's rename some of our variables to be easier to read and work with
+```{r}
+names(data.processed)[4] <- "Electricity.Access"
+names(data.processed)[5] <- "Adj.SavingNetCO2Damage"
+names(data.processed)[6] <- "Adj.SavingNaturalResourceDepletion"
+names(data.processed)[7] <- "Adj.SavingNetForestDepletion"
+names(data.processed)[8] <- "Adj.SavingParticulateEmissions"
+names(data.processed)[9] <- "CompulsoryEducationDurationYears"
+names(data.processed)[10] <- "ExportGoodsServices.GDP"
+names(data.processed)[11] <- "FinalConsumptionExpenditure.GDP"
+names(data.processed)[12] <- "GDP.Current"
+names(data.processed)[13] <- "GDP.PerCapita.Current"
+names(data.processed)[14] <- "Govt.FinalConsumptionExpenditure.GDP"
+names(data.processed)[15] <- "GrossNationalExpenditure.GDP"
+names(data.processed)[16] <- "ImportGoodsServices.GDP"
+names(data.processed)[17] <- "ConsumerPriceInflation"
+names(data.processed)[18] <- "ProportionParliamentSeats.Women"
+names(data.processed)[19] <- "RenewableEnergyConsumption.pctOfTotal"
+names(data.processed)[20] <- "Trade.GDP"
+names(data.processed)[21] <- "WomenInBusinessLawIndex"
+names(data.processed)[22] <- "AnnualProductionBasedCO2Emissions"
+names(data.processed)[24] <- "WorldBankIncomeClass"
+names(data.processed)[25] <- "IndividualsUsingInternet"
+names(data.processed)[26] <- "LifeExpenctancy"
+names(data.processed)[27] <- "TotalPopulation"
+names(data.processed)[28] <- "RegimeType"
+names(data.processed)[29] <- "RuralPopulation.Prop"
+names(data.processed)[30] <- "TotalNaturalResources.GDP"
+names(data.processed)[31] <- "UrbanPopulation.Prop"
+names(data.processed)[32] <- "WorldRegion"
+```
+
+Set string variables to Factor
+```{r}
+data.processed$RegimeType <- as.factor(data.processed$RegimeType)
+data.processed$WorldRegion <- as.factor(data.processed$WorldRegion)
+data.processed$WorldBankIncomeClass <- as.factor(data.processed$WorldBankIncomeClass)
+```
+
+Export the processed data
+```{r, eval=FALSE}
+write.csv(data.processed, "data/WorldSustainabilityData_Processed.csv", row.names = FALSE)
+#rename and save for merge
+wsd <- data.processed
+save(wsd, file="data/WorldSustainabilityData_Processed.Rda")
+```
 
 Load outputs from EDA Rmds
 ```{r load.dfs}
