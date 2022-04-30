@@ -516,7 +516,7 @@ Let's now see how various socioeconomic, sustainability and political factors ma
 * neural networks?
 
 
-## Linear models
+# Linear models
 
 In the first approach, we are creating several linear models by selecting variables based on domain knowledge. Each model is focused on specific themes that may be of importance for predicting a country's `VSI` score. The following themes will be covered: 
   + Economic factors
