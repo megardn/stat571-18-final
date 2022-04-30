@@ -115,7 +115,7 @@ table(as.factor(wsd.avg$nYears_avg)) # see yr frequencies
 ```
 
 
-Merge into one wide wsd dataframe and remove any variables that are highly correlate:
+Merge into one wide wsd dataframe and remove any variables that are highly correlated:
 
 ```{r fig.width=10, fig.height=10}
 # one predictor dataframe to rule them all
@@ -785,7 +785,7 @@ text(single.tree1, pretty = 1)
 title("Single Tree | VSI Prediction")
 ```
 
-While an advantage of using a single tree is that we can see which variables are diving our prediction, Random Forest may provide better results at the cost of interpretability. Accordignly, now we will tune and train a Random Forest model. 
+While an advantage of using a single tree is that we can see which variables are diving our prediction, Random Forest may provide better results at the cost of interpretability. Accordingly, now we will tune and train a Random Forest model. 
 
 Let us tune the parameters mtry (number of variables to sample) and ntree (number of trees to use). First, we will tune ntree. 
 
@@ -797,7 +797,7 @@ title(main = "OOB Test Error by Number of Trees Used")
 ```
 Based on out of bag error, it seems that 100 trees is sufficient. Now, let's tune mtry. 
 
-```{r}
+```{r, warning=FALSE}
 set.seed(10)
 max.mtry <- ncol(data.train.sub)  
 error.p <- 1:max.mtry 
