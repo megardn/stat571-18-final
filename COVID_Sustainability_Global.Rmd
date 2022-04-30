@@ -31,7 +31,7 @@ pacman::p_load(tidyverse, dplyr, ggplot2, ggthemes, data.table, lubridate,
                GGally, RColorBrewer, ggsci, plotROC, usmap,
                plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car, 
                keras, neuralnet, tensorflow, missForest, corrplot, tree, randomForest, fastDummies,
-               rworldmap, RColorBrewer, classInt)
+               rworldmap, RColorBrewer, classInt, matrixStats)
 ```
 
 
@@ -84,7 +84,7 @@ wsd %>% mutate(country=as.character(country)) %>%
   arrange(country) %>%
   ggplot() + geom_bar(aes(y = country, fill = country)) +
   theme(legend.position = "none") +
-  ggtitle("Years worth of data reported for each country") +
+  ggtitle("Years of data reported for each country") +
   xlab("Number of years reported")
 ```
 
@@ -1009,7 +1009,8 @@ The MSE of this model is now `r fit.nn.full$metrics$loss[min.epoch]`, slightly l
 Now we'll attempt to create the best model by bagging those created above.
 
 ```{r}
-# average probabilities
+set_random_seed(10)
+# average predictions
 df.yhat <- data.train %>% dplyr::select(VSI) #initialize df to store outputs
 df.yhat$full.lm <- predict(lm.full, data.train) 
 df.yhat$lasso <- predict(fit.1se.lm, data.train) 
@@ -1023,7 +1024,67 @@ en.train.mse <- mean((df.yhat$VSI - df.yhat$en.pred)^2)
 en.train.mse
 ```
 
-Hurrah! Our training MSE from our ensemble method, `r en.train.mse`, is actually pretty good!
+Hurrah! Our training MSE from our ensemble method, `r en.train.mse`, is actually pretty good! We can reduce this even further by weighting the contributions of each model based on their individual training MSEs, displayed below: 
+
+```{r}
+#pull out each model's MSE
+full.lm.train.mse <- mean(na.omit((df.yhat$VSI - df.yhat$full.lm)^2))
+lasso.train.mse <- mean(na.omit((df.yhat$VSI - df.yhat$lasso)^2))
+rf.train.mse <- mean(na.omit((df.yhat$VSI - df.yhat$rf)^2))
+regsub.train.mse <- mean(na.omit((df.yhat$VSI - df.yhat$regsub)^2))
+nn.train.mse <- mean((df.yhat$VSI - df.yhat$V1)^2)
+
+# create a table of all models' testing errors
+df.testerr <- data.frame(model=c('full.lm', 'LASSO', 'RandomForest', 'RegSub', 'NN','full.ensemble'),
+                 train.mse=c(full.lm.train.mse, lasso.train.mse, rf.train.mse, regsub.train.mse, nn.train.mse, en.train.mse))
+df.testerr
+
+#can we reduce error even further by weighting the predictions from different models?
+weight.list <- c(1, 0.5, 3, 1.25, 1)
+df.yhat <- df.yhat %>%
+  mutate(weighted.pred = rowWeightedMeans(as.matrix(df.yhat[ , c(2:6)]), w=weight.list, na.rm=TRUE))
+weighted.train.mse <- mean((df.yhat$VSI - df.yhat$weighted.pred)^2)
+```
+
+As we can see, the RandomForest MSE is lowest while LASSO's MSE is highest. By weighting the contributions of each model to our final prediciton accordingly, we obtain a training MSE of `r weighted.train.mse`.
+
+We'll conclude by running our weighted ensemble method on the validation data we split out at the beginning to see how well this model predicts VSI scores based on data from unseen countries.
+
+```{r}
+set_random_seed(10)
+# average probabilities
+validaiton.df.yhat <- data.val %>% dplyr::select(VSI) #initialize df to store outputs
+validaiton.df.yhat$full.lm <- predict(lm.full, data.val) 
+validaiton.df.yhat$lasso <- predict(fit.1se.lm, data.val) 
+validaiton.df.yhat$rf <- predict(fit.final.rf, data.val) 
+validaiton.df.yhat$regsub <- predict(fit1.lm, data.val) 
+nn.list.val <- model2 %>% predict(data_xval) %>% unname()
+validaiton.df.yhat <- cbind(validaiton.df.yhat, as.data.frame(nn.list.val))
+validaiton.df.yhat <- validaiton.df.yhat %>%
+  mutate(weighted.pred = rowWeightedMeans(as.matrix(validaiton.df.yhat[ , c(2:6)]), w=weight.list, na.rm=TRUE))
+weighted.val.mse <- mean((validaiton.df.yhat$VSI - validaiton.df.yhat$weighted.pred)^2)
+weighted.val.mse
+```
+
+Unfortunately the MSE from applying our weighted ensemble method to unseen validation data (`r weighted.val.mse`) is much larger than that of our training data (`r weighted.train.mse`). This suggests that the ensemble model and/or one of the underlying models bagged to create it suffered from overfitting.
+
+```{r}
+#find correlation
+val.cor_value <- cor(validaiton.df.yhat$VSI, validaiton.df.yhat$weighted.pred, use = "complete.obs")
+
+plot_validation <- validaiton.df.yhat %>% 
+  ggplot(aes(x = VSI, y = weighted.pred)) +
+  geom_point(aes(color=VSI), show.legend = FALSE) +
+  geom_smooth(method = "lm", color = "grey") +
+  theme_bw() +
+  ggtitle("Association between VSI predicted by weighted ensemble model \n and observed VSI in unseen data") +
+  xlab("VSI") +
+  ylab("VSI Predicted by Weighted Average Ensemble") +
+  annotate("text", x = -3, y = max(validaiton.df.yhat["weighted.pred"]) - 0.5, # position
+           size = 4, # font size
+           label = paste0("Correlation: ", sprintf("%.3f", val.cor_value)))
+plot_validation
+```
 
 # Appendix
 
