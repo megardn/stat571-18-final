@@ -1,5 +1,5 @@
 ---
-title: "COVID_Sustainability_Global"
+title: "Predicting Countries' COVID-19 Vaccination Sucess"
 author:
 - Diego G. Davila
 - Margaret Gardner
@@ -33,6 +33,25 @@ pacman::p_load(tidyverse, dplyr, ggplot2, ggthemes, data.table, lubridate,
                keras, neuralnet, tensorflow, missForest, corrplot, tree, randomForest, fastDummies,
                rworldmap, RColorBrewer, classInt)
 ```
+
+# Executive Summary
+## Background and Goal
+
+The events of the devastating COVID-19 pandemic have been felt in all areas of human civilization. With the rapid development of mRNA vaccines to combat the spread of the virus, and reduce associated mortality and morbidity, societies have been slowly returning to a more normal way of life. However, this has not been uniform across countries. While in certain nations, vaccination campaigns have been largely successful, others have not fared as well and have faced a protracted pandemic. The efficacy of a nation's COVID-19 vaccination campaign is thus imperative to the well-being of that nation's populace, its global and domestic economy, and the prevention of the emergence of novel viral variants. Understanding the country-level factors that have led some nations to effectively vaccinate their population, and others to struggle with this process is, naturally, critical to tailoring international efforts to increase vaccination, and reduce the harm caused by the COVID-19 pandemic. Furthermore, the progression of Global Warming increases the likelihood of COVID-19-like pandemics in the [future](https://www.nature.com/articles/s41586-022-04788-w). Developing models to predict nations' vaccination effectiveness is of the utmost importance, and could guide the focus of future global resource allocation. 
+
+Given the above, the goals of this project are:
+1. To elucidate the country-level variables that are predictive of a nation's vaccination success. 
+2. To develop models that can predict a nation's vaccination success given social, political, and economic variables, as well as features of disease toll prior to vaccine availability. 
+
+## Data Description
+To address the goals of our project, we have combined the following data sets to form an array of predictors: 
+* The [World Sustainability Dataset](https://www.kaggle.com/datasets/truecue/worldsustainabilitydataset): A data set describing several measures of a nation's social, political, economic, and climate-related characterization. This data set was originally aggregated for the TrueCue Women+Data Hackathon, and was released as publicly available after the event. 
+* [OTHER DATASETS]
+
+### Vaccination Success Index 
+The success of a nation's vaccination campaign is described in terms of many variables, including number of vaccinated, days to vaccinating percentages of the population, and daily vaccinations. Describing, quantifying, and predicting such a multifaceted concept can be a challenge. To address this, we have developed a measure of vaccination success that takes into account several such factors pertaining to national vaccination campaigns. We have termed this measure the Vaccination Success Index (VSI). Demonstrated in more detail further, the VSI was developed by applying Principal Component Analysis (PCA) to various measures of world nations' vaccination campaigns. VSI serves as our primary outcome measure. 
+
+## Results 
 
 
 # Data Preprocessing
