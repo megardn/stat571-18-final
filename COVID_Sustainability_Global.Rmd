@@ -35,8 +35,7 @@ pacman::p_load(tidyverse, dplyr, ggplot2, ggthemes, data.table, lubridate,
 ```
 
 # Executive Summary
-## Background and Goal
-
+## Background and Goals
 The events of the devastating COVID-19 pandemic have been felt in all areas of human civilization. With the rapid development of mRNA vaccines to combat the spread of the virus, and reduce associated mortality and morbidity, societies have been slowly returning to a more normal way of life. However, this has not been uniform across countries. While in certain nations, vaccination campaigns have been largely successful, others have not fared as well and have faced a protracted pandemic. The efficacy of a nation's COVID-19 vaccination campaign is thus imperative to the well-being of that nation's populace, its global and domestic economy, and the prevention of the emergence of novel viral variants. Understanding the country-level factors that have led some nations to effectively vaccinate their population, and others to struggle with this process is, naturally, critical to tailoring international efforts to increase vaccination, and reduce the harm caused by the COVID-19 pandemic. Furthermore, the progression of Global Warming increases the likelihood of COVID-19-like pandemics in the [future](https://www.nature.com/articles/s41586-022-04788-w). Developing models to predict nations' vaccination effectiveness is of the utmost importance, and could guide the focus of future global resource allocation. 
 
 Given the above, the goals of this project are:
@@ -49,9 +48,24 @@ To address the goals of our project, we have combined the following data sets to
 * [OTHER DATASETS]
 
 ### Vaccination Success Index 
-The success of a nation's vaccination campaign is described in terms of many variables, including number of vaccinated, days to vaccinating percentages of the population, and daily vaccinations. Describing, quantifying, and predicting such a multifaceted concept can be a challenge. To address this, we have developed a measure of vaccination success that takes into account several such factors pertaining to national vaccination campaigns. We have termed this measure the Vaccination Success Index (VSI). Demonstrated in more detail further, the VSI was developed by applying Principal Component Analysis (PCA) to various measures of world nations' vaccination campaigns. VSI serves as our primary outcome measure. 
+The success of a nation's vaccination campaign is described in terms of many variables, including number of vaccinated, days to vaccinating percentages of the population, and daily vaccinations. Describing, quantifying, and predicting such a multifaceted concept can be a challenge. To address this, we have developed a quantified measure of vaccination success that takes into account several such factors pertaining to national vaccination campaigns. We have termed this measure the Vaccination Success Index (VSI). Demonstrated in more detail further, the VSI was developed by applying Principal Component Analysis (PCA) to various measures of world nations' vaccination campaigns. VSI serves as our primary outcome measure. 
 
 ## Results 
+Our analyses have yielded several useful insights that may help inform global policy decisions as international resources are allocated to help struggling nations increase vaccination success. 
+
+Linear Regression models based on economic factors, disease burden factors, and political factors, as well as a data-driven LASSO model, have converged on the following variables as significantly predictive of vaccination success:
+* World Region
+** Policy Recommendation: Aid should focus on increasing vaccinations in struggling regions (i.e. Sub-Saharan Africa)
+* Life Expectancy (Prior to Pandemic)
+** Policy Recommendation: Life expectancy often serves as an indicator of a country's overall medical infrastructure. Medical infrastructure resources should be the focus of aid, more so than economic relief alone. 
+* Women in Business and Law
+** Policy Recommendation: This may indicate a nation's gender-based social liberality. Aid should thus be considered for nations that are 
+* Regime Type
+** Policy Recommendation: Mutual aid relationships should be facilitated between nations of varying regime types. 
+* Number of Internet Users
+** Internet access should be made widely available as part of aid packages. This may help to provide adequate information regarding vaccinations, and help coordinate a nation's vaccination logistics (i.e. online signups and messaging). 
+
+Furthermore, we have developed more robust models that predict VSI with varying degrees of accuracy (Linear Regression & LASSO, Trees & Random Forest, and Artificial Neural Networks). While predictive accuracy was moderate for each model individually, by creating an ensemble model that averages the predictions of all models, we have achieved a robust predictive ability, that could help forecast vaccination success in subsequent COVID-19 vaccination campaigns and future pandemics. 
 
 
 # Data Preprocessing
@@ -59,23 +73,23 @@ The success of a nation's vaccination campaign is described in terms of many var
 Before starting to do more involved EDA, we will preprocess our data to ensure we have wokable datasets to begin our exploration with. 
 
 First, we will begin to process the World Sustainability Dataset. Let's read in the raw data and take a look at a few rows to get a sense of what it looks like. 
-```{r}
+```{r, eval = FALSE}
 data.raw <- read.csv('data/WorldSustainabilityDataset.csv', header = TRUE)
 ```
 
 There are some missing elements labeled as empty instead of NA. Let's fix this before proceeding.
-```{r}
+```{r, eval = FALSE}
 data.raw[data.raw == ""] <- NA
 ```
 
 There are quite a few NAs. Let's get fields have at least a 90% complete rate. 
-```{r}
+```{r, eval = FALSE}
 data.90 <- data.raw[, apply(data.raw, 2, function(col)sum(is.na(col))/length(col)) < 0.10]
 ```
 
 Let's make sure that removing the rows with missing values in these remaining fields will give us a sufficient number of countries to use. 
 
-```{r}
+```{r, eval = FALSE}
 data.processed <- na.omit(data.90)
 # How many countries?
 n.countries <- length(unique(data.processed$Country.Name))
@@ -85,7 +99,7 @@ n.countries
 After cleaning, we are left with `n.countries` countries, which is a workable amount. 
 
 Ok good, now let's rename some of our variables to be easier to read and work with
-```{r}
+```{r, eval = FALSE}
 names(data.processed)[4] <- "Electricity.Access"
 names(data.processed)[5] <- "Adj.SavingNetCO2Damage"
 names(data.processed)[6] <- "Adj.SavingNaturalResourceDepletion"
@@ -117,7 +131,7 @@ names(data.processed)[32] <- "WorldRegion"
 ```
 
 Set string variables to Factor
-```{r}
+```{r, eval = FALSE}
 data.processed$RegimeType <- as.factor(data.processed$RegimeType)
 data.processed$WorldRegion <- as.factor(data.processed$WorldRegion)
 data.processed$WorldBankIncomeClass <- as.factor(data.processed$WorldBankIncomeClass)
