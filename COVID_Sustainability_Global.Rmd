@@ -785,7 +785,7 @@ text(single.tree1, pretty = 1)
 title("Single Tree | VSI Prediction")
 ```
 
-While an advantage of using a single tree is that we can see which variables are diving our prediction, Random Forest may provide better results at the cost of interpretability. Accordingly, now we will tune and train a Random Forest model. 
+While an advantage of using a single tree is that we can see which variables are diving our prediction, namely, the leaves on our branching tree seen above, Random Forest may provide better results at the cost of interpretability. Accordingly, now we will tune and train a Random Forest model. 
 
 Let us tune the parameters mtry (number of variables to sample) and ntree (number of trees to use). First, we will tune ntree. 
 
