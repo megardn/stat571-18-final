@@ -31,7 +31,7 @@ pacman::p_load(tidyverse, dplyr, ggplot2, ggthemes, data.table, lubridate,
                GGally, RColorBrewer, ggsci, plotROC, usmap,
                plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car, 
                keras, neuralnet, tensorflow, missForest, corrplot, tree, randomForest, fastDummies,
-               rworldmap, RColorBrewer, classInt)
+               rworldmap, RColorBrewer, classInt, matrixStats)
 ```
 
 # Executive Summary
@@ -173,10 +173,9 @@ Before attempting to merge, I'll parse down the dataframes so we can hopefully w
 
 # WSD EDA & Summary Values
 
-To start, we'll try several different methods of summarizing the longitudinal WSD data into a single "timepoint". We selected the latest data reported for each country (restricted to 2016 or later) and calculated: the average of each parameter over time (2001 to 2018); the average of the last 3 years of data (2016-2018); and the relative and absolute change in each parameter over time (2001-2018). In order to maximize completeness and recency of the dataset while minimizing colinearity, we decided to use each country's latest data and data averaged over 17 years in our models below *question - except nns?*. Code for each unused summary dataframe can be found in the appendix.
+To start, we'll try several different methods of summarizing the longitudinal WSD data into a single "timepoint". We selected the latest data reported for each country (restricted to 2016 or later) and calculated: the average of each parameter over time (2001 to 2018); the average of the last 3 years of data (2016-2018); and the relative and absolute change in each parameter over time (2001-2018). In order to maximize completeness and recency of the dataset while minimizing colinearity, we decided to use each country's latest data and data averaged over 17 years in our models below. Code for each unused summary dataframe can be found in the appendix.
 
 ```{r}
-
 # latest data for each country, restricted to 2016 or later
 wsd.latest <- wsd %>% arrange(Year) %>%
   group_by(country) %>%
@@ -187,7 +186,18 @@ colnames(wsd.latest)[5:31] <- paste(colnames(wsd.latest)[5:31], "latest", sep = 
 table(as.factor(wsd.latest$Year_latest)) # see yr frequencies
 ```
 
-Averaging across all years for every country with available data.  **add table/graph to show how many years each country has data for**
+As seen below, there is a great deal of variability in how many years each country has data reported in the WSD dataset:
+
+```{r fig.width=10, fig.height=10}
+wsd %>% mutate(country=as.character(country)) %>% 
+  arrange(country) %>%
+  ggplot() + geom_bar(aes(y = country, fill = country)) +
+  theme(legend.position = "none") +
+  ggtitle("Years of data reported for each country") +
+  xlab("Number of years reported")
+```
+
+This is a limitation that should be kept in mind when interpreting the results of our model and the predictive power of averaged variables in particular, since an averaged GDP for one country might reflect 17 years of data while the averaged GDP of another may only reflect 3 years. 
 
 ```{r}
 # averages for numeric
@@ -225,8 +235,7 @@ wsd.avg <- merge(wsd.avg.fac, wsd.avg.num, by="country") #rejoin num and fac
 table(as.factor(wsd.avg$nYears_avg)) # see yr frequencies
 ```
 
-
-Merge into one wide wsd dataframe and remove any variables that are highly correlated:
+Next we'll merge the latest data and averaged data into one wide wsd dataframe and remove any variables that are highly correlated:
 
 ```{r fig.width=10, fig.height=10}
 # one predictor dataframe to rule them all
@@ -892,6 +901,47 @@ summary(fit.1se.lm)
 
 LASSO results using the `coef.1se` suggest again that life expectancy is an important predictor of `VSI`. In addition, the LASSO approach selected the 17 year average number of individuals using internet. When feeding these into a linear model, both have a significant effect on `VSI`.  
 
+## Regsubsets
+
+Running regsubsets to optimize a model by minimizing Cp. 
+We do get a warning that regsubsets still finds our data to be colinear, so we re-run correlation reduction with 95% cutoff on `data.train` to whether we can build a more optimal model. While this alternate model does better in modeling VSI (see *Comparing Regsubsets Models* in the Appendix), we felt this improvement in performance was not worth the lack of comparability with LASSO, RF and other models built on the full `data.train` set of predictors.  
+
+```{r}
+regsub.fit1 <- regsubsets(VSI ~., data.train , nvmax=25, method="forward", really.big = TRUE)
+f.e <- summary(regsub.fit1)
+plot(f.e$cp, xlab="Number of predictors", 
+     ylab="Cp", col="red", pch=16)
+
+opt.size <- which.min(f.e$cp) #pick size with lowest cp
+regsub.fit.var <- f.e$which # logic indicators which variables are in
+
+regsub.vars <- colnames(regsub.fit.var)[regsub.fit.var[opt.size,]][-1] # output variables selected
+regsub.vars
+
+fit1.lm <- lm(VSI ~ WorldRegion +
+                WorldBankIncomeClass_latest +
+                WorldBankIncomeClass_avg +
+                Govt.FinalConsumptionExpenditure.GDP_latest +
+                WomenInBusinessLawIndex_avg +
+                LifeExpenctancy_avg +
+                cumulative_total_cases_prevac +
+                weekly_new_deaths_per_hundred_prevac, data.train)
+Anova(fit1.lm)
+```
+
+Now let's try some backward selection on this model:
+
+```{r}
+fit1.lm.refined <- update(fit1.lm, .~. -weekly_new_deaths_per_hundred_prevac)
+#Anova(fit1.lm.refined)
+fit1.lm.2.refined <- update(fit1.lm.refined, .~. -WorldBankIncomeClass_avg)
+#Anova(fit1.lm.2.refined)
+fit1.lm.3.refined <- update(fit1.lm.2.refined, .~. -cumulative_total_cases_prevac)
+Anova(fit1.lm.3.refined)
+```
+
+Reducing to only significantly predictive variables, we find they are fairly similar to those identified by our full linear model. *make sure this is still true once Joelle refines*. This is reassuring to have our data-driven model identify similar predictors to our hypothesis-driven models. 
+
 
 ## Trees & Random Forests
 
@@ -946,46 +996,6 @@ plot(fit.final.rf)
 The final Random Forest model, now that it's been tuned, is performing with an Out-Of-Bag Testing error of `fit.final.rf$mse[100]`. While our final testing error is still somewhat high, Random Forest can achieve a somewhat accurate estimate of a nation's COVID vaccination success, given social and economic factors prior to the pandemic, and COVID case data prior to the start of vaccination campaigns. 
 
 
-## Regsubsets
-
-Running regsubsets to optimize a model by minimizing Cp. 
-We do get a warning that regsubsets still finds our data to be colinear, so we re-run correlation reduction with 95% cutoff on `data.train` to whether we can build a more optimal model. While this alternate model does better in modeling VSI (see *Comparing Regsubsets Models* in the Appendix), we felt this improvement in performance was not worth the lack of comparability with LASSO, RF and other models built on the full `data.train` set of predictors.  
-
-```{r}
-regsub.fit1 <- regsubsets(VSI ~., data.train , nvmax=25, method="forward", really.big = TRUE)
-f.e <- summary(regsub.fit1)
-plot(f.e$cp, xlab="Number of predictors", 
-     ylab="Cp", col="red", pch=16)
-
-opt.size <- which.min(f.e$cp) #pick size with lowest cp
-regsub.fit.var <- f.e$which # logic indicators which variables are in
-
-regsub.vars <- colnames(regsub.fit.var)[regsub.fit.var[opt.size,]][-1] # output variables selected
-regsub.vars
-
-fit1.lm <- lm(VSI ~ WorldRegion +
-                WorldBankIncomeClass_latest +
-                WorldBankIncomeClass_avg +
-                Govt.FinalConsumptionExpenditure.GDP_latest +
-                WomenInBusinessLawIndex_avg +
-                LifeExpenctancy_avg +
-                cumulative_total_cases_prevac +
-                weekly_new_deaths_per_hundred_prevac, data.train)
-Anova(fit1.lm)
-```
-
-Now let's try some backward selection on this model:
-
-```{r}
-fit1.lm.refined <- update(fit1.lm, .~. -weekly_new_deaths_per_hundred_prevac)
-Anova(fit1.lm.refined)
-fit1.lm.2.refined <- update(fit1.lm.refined, .~. -WorldBankIncomeClass_avg)
-Anova(fit1.lm.2.refined)
-fit1.lm.3.refined <- update(fit1.lm.2.refined, .~. -cumulative_total_cases_prevac)
-Anova(fit1.lm.3.refined)
-```
-
-Reducing to only significantly predictive variables, we find they are fairly similar to those identified by our full linear model. *make sure this is still true once Joelle refines*. This is reassuring to have our data-driven model identify similar predictors to our hypothesis-driven models. 
 
 ## Neural Networks
 
@@ -1103,14 +1113,13 @@ fit.nn.full$metrics$loss[min.epoch]
 
 The MSE of this model is now `r fit.nn.full$metrics$loss[min.epoch]`, slightly larger than the training loss on the original (MSE at epoch 65 = `r fit.nn$metrics$loss[min.epoch]`).
 
-**ahhh keeps changing and mse going up from mse train!**
-
 ## Ensemble
 
 Now we'll attempt to create the best model by bagging those created above.
 
 ```{r}
-# average probabilities
+set_random_seed(10)
+# average predictions
 df.yhat <- data.train %>% dplyr::select(VSI) #initialize df to store outputs
 df.yhat$full.lm <- predict(lm.full, data.train) 
 df.yhat$lasso <- predict(fit.1se.lm, data.train) 
@@ -1124,7 +1133,67 @@ en.train.mse <- mean((df.yhat$VSI - df.yhat$en.pred)^2)
 en.train.mse
 ```
 
-Hurrah! Our training MSE from our ensemble method, `r en.train.mse`, is actually pretty good!
+Hurrah! Our training MSE from our ensemble method, `r en.train.mse`, is actually pretty good! We can reduce this even further by weighting the contributions of each model based on their individual training MSEs, displayed below: 
+
+```{r}
+#pull out each model's MSE
+full.lm.train.mse <- mean(na.omit((df.yhat$VSI - df.yhat$full.lm)^2))
+lasso.train.mse <- mean(na.omit((df.yhat$VSI - df.yhat$lasso)^2))
+rf.train.mse <- mean(na.omit((df.yhat$VSI - df.yhat$rf)^2))
+regsub.train.mse <- mean(na.omit((df.yhat$VSI - df.yhat$regsub)^2))
+nn.train.mse <- mean((df.yhat$VSI - df.yhat$V1)^2)
+
+# create a table of all models' testing errors
+df.testerr <- data.frame(model=c('full.lm', 'LASSO', 'RandomForest', 'RegSub', 'NN','full.ensemble'),
+                 train.mse=c(full.lm.train.mse, lasso.train.mse, rf.train.mse, regsub.train.mse, nn.train.mse, en.train.mse))
+df.testerr
+
+#can we reduce error even further by weighting the predictions from different models?
+weight.list <- c(1, 0.5, 3, 1.25, 1)
+df.yhat <- df.yhat %>%
+  mutate(weighted.pred = rowWeightedMeans(as.matrix(df.yhat[ , c(2:6)]), w=weight.list, na.rm=TRUE))
+weighted.train.mse <- mean((df.yhat$VSI - df.yhat$weighted.pred)^2)
+```
+
+As we can see, the RandomForest MSE is lowest while LASSO's MSE is highest. By weighting the contributions of each model to our final prediciton accordingly, we obtain a training MSE of `r weighted.train.mse`.
+
+We'll conclude by running our weighted ensemble method on the validation data we split out at the beginning to see how well this model predicts VSI scores based on data from unseen countries.
+
+```{r}
+set_random_seed(10)
+# average probabilities
+validaiton.df.yhat <- data.val %>% dplyr::select(VSI) #initialize df to store outputs
+validaiton.df.yhat$full.lm <- predict(lm.full, data.val) 
+validaiton.df.yhat$lasso <- predict(fit.1se.lm, data.val) 
+validaiton.df.yhat$rf <- predict(fit.final.rf, data.val) 
+validaiton.df.yhat$regsub <- predict(fit1.lm, data.val) 
+nn.list.val <- model2 %>% predict(data_xval) %>% unname()
+validaiton.df.yhat <- cbind(validaiton.df.yhat, as.data.frame(nn.list.val))
+validaiton.df.yhat <- validaiton.df.yhat %>%
+  mutate(weighted.pred = rowWeightedMeans(as.matrix(validaiton.df.yhat[ , c(2:6)]), w=weight.list, na.rm=TRUE))
+weighted.val.mse <- mean((validaiton.df.yhat$VSI - validaiton.df.yhat$weighted.pred)^2)
+weighted.val.mse
+```
+
+Unfortunately the MSE from applying our weighted ensemble method to unseen validation data (`r weighted.val.mse`) is much larger than that of our training data (`r weighted.train.mse`). This suggests that the ensemble model and/or one of the underlying models bagged to create it suffered from overfitting.
+
+```{r}
+#find correlation
+val.cor_value <- cor(validaiton.df.yhat$VSI, validaiton.df.yhat$weighted.pred, use = "complete.obs")
+
+plot_validation <- validaiton.df.yhat %>% 
+  ggplot(aes(x = VSI, y = weighted.pred)) +
+  geom_point(aes(color=VSI), show.legend = FALSE) +
+  geom_smooth(method = "lm", color = "grey") +
+  theme_bw() +
+  ggtitle("Association between VSI predicted by weighted ensemble model \n and observed VSI in unseen data") +
+  xlab("VSI") +
+  ylab("VSI Predicted by Weighted Average Ensemble") +
+  annotate("text", x = -3, y = max(validaiton.df.yhat["weighted.pred"]) - 0.5, # position
+           size = 4, # font size
+           label = paste0("Correlation: ", sprintf("%.3f", val.cor_value)))
+plot_validation
+```
 
 # Appendix
 
