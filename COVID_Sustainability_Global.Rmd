@@ -460,7 +460,37 @@ We can see that Somalia appears to be the country with the lowest VSI, and Cuba 
 
 *Joelle to add worldmap of VSI*
 
-*validate VSI by showing assoc of VSI with lower mortality once vac starts (deaths last - deaths @ start date)*
+*validate VSI by showing assoc of VSI with lower mortality once vac starts (deaths last - deaths @ start date for all vac)*
+
+```{r}
+#global start-date for vaccination
+first.vac <- min(na.omit(covid$date.first.vac))
+
+#find deaths occuring post gobal start of vaccinations 
+postvac.case <- covid %>%
+  arrange(date) %>%
+  dplyr::select(country, date, cumulative_total_cases_per_hundred) %>%
+  group_by(country) %>%
+  subset(date==first.vac | date==max(date)) %>%
+  filter(n() >= 2) %>% #make sure country has data for both years
+  mutate(postvac.case.per.hundred = cumulative_total_cases_per_hundred - lag(cumulative_total_cases_per_hundred)) %>%
+  ungroup %>%
+  dplyr::select(country, postvac.case.per.hundred) %>%
+  drop_na()
+
+yval <- vac.sum.with.VSI %>% dplyr::select("country", "VSI")
+VSI.val <- inner_join(postvac.case, yval,  by=("country"))
+
+vsi.lm <- lm(postvac.case.per.hundred ~ VSI, data=VSI.val)
+summary(vsi.lm)
+
+plot_VSI_postvac.case <- VSI.val %>%
+  ggplot(aes(x = postvac.case.per.hundred, y = VSI)) +
+  geom_point(aes(group = country, color = country), show.legend = FALSE) +
+  geom_smooth(method = "lm", color = "grey") +
+  theme_bw()
+ggplotly(plot_VSI_postvac.case)
+```
 
 # Compiling Dataset
 
