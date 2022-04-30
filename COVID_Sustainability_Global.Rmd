@@ -808,7 +808,7 @@ Now, we will try to use tree based methods (single decision tree and random fore
 
 First, we will try using a single regression tree. 
 
-```{r, fig.height=6, fig.width=15}
+```{r, fig.height=8, fig.width=17}
 single.tree1 <- tree(VSI ~ ., data.train.sub, control=tree.control(nobs=nrow(data.train.sub),
                                               minsize=4,     
                                               mindev=0.009))
@@ -817,18 +817,7 @@ text(single.tree1, pretty = 1)
 title("Single Tree | VSI Prediction")
 ```
 
-Now that we've generated our tree, let's see how well it does at predicting unseen data. 
-
-```{r}
-# no more data.test - can split data.train before running single tree if you want
-tree.test.prediction <- predict(single.tree1, newdata = data.test)
-tree.mse <- mean((data.test$VSI - tree.test.prediction)^2) # calculate mean squared prediction error
-tree.mse
-```
-
-Our mean squared prediction error using a single tree is `r tree.mse`! That is quite high, though not surprising, given the complexity of the question. Now, let's try something more robust. While an advantage of using a single tree is that we can see which variables are diving our prediction, Random Forest may provide better results at the cost of interpretability.  
-
-Now we will tune and train a Random Forest model. 
+While an advantage of using a single tree is that we can see which variables are diving our prediction, Random Forest may provide better results at the cost of interpretability. Accordignly, now we will tune and train a Random Forest model. 
 
 Let us tune the parameters mtry (number of variables to sample) and ntree (number of trees to use). First, we will tune ntree. 
 
@@ -855,24 +844,16 @@ plot(1:max.mtry, error.p,
      ylab="OOB MSE")
 lines(1:max.mtry, error.p)
 ```
-An mtry of around 20 seems to provide good results, so we will use this as our parameter. Now, we train the final Random Forest model based on our tuned parameters.
+An mtry of around 30 seems to provide good results, so we will use this as our parameter. Now, we train the final Random Forest model based on our tuned parameters.
 
 ```{r}
 set.seed(2) 
-fit.final.rf <- randomForest(VSI~., data.train.sub, mtry=20, ntree=100)
+fit.final.rf <- randomForest(VSI~., data.train.sub, mtry=30, ntree=100)
 plot(fit.final.rf)
 ```
 
-Due to the bootstrapping of samples done by Random Forest, we could use our OOB error as testing error, but for the sake of consistency, we will use our testing dataset to calculate Mean Squared Prediction Error. 
+The final Random Forest model, now that it's been tuned, is performing with an Out-Of-Bag Testing error of `fit.final.rf$mse[100]`. While our final testing error is still somewhat high, Random Forest can achieve a somewhat accurate estimate of a nation's COVID vaccination success, given social and economic factors prior to the pandemic, and COVID case data prior to the start of vaccination campaigns. 
 
-```{r}
-#again, no more data.test
-rf.test.prediction <- predict(fit.final.rf, newdata = data.test)
-rf.mse <- mean((data.test$VSI - rf.test.prediction)^2) # calculate mean squared prediction error
-rf.mse
-```
-
-Our final Testing MSE from the Random Forest model is `r rf.mse`. This is much better than the single tree. While our final testing error is still somewhat high, Random Forest can achieve a somewhat accurate estimate of a nation's COVID vaccination success, given social and economic factors prior to the pandemic, and COVID case data prior to the start of vaccination campaigns. 
 
 ## Regsubsets
 
@@ -881,14 +862,14 @@ We do get a warning that regsubsets still finds our data to be colinear, so we r
 
 ```{r}
 regsub.fit1 <- regsubsets(VSI ~., data.train , nvmax=25, method="forward", really.big = TRUE)
-f.e <- summary(fit1)
+f.e <- summary(regsub.fit1)
 plot(f.e$cp, xlab="Number of predictors", 
      ylab="Cp", col="red", pch=16)
 
 opt.size <- which.min(f.e$cp) #pick size with lowest cp
 regsub.fit.var <- f.e$which # logic indicators which variables are in
 
-regsub.vars <- colnames(fit.var)[fit.var[opt.size,]][-1] # output variables selected
+regsub.vars <- colnames(regsub.fit.var)[regsub.fit.var[opt.size,]][-1] # output variables selected
 regsub.vars
 
 fit1.lm <- lm(VSI ~ WorldRegion +
@@ -919,23 +900,8 @@ Reducing to only significantly predictive variables, we find they are fairly sim
 
 Next, we'll run neural nets. Though the data has high completion to begin with (only `r (sum(is.na(final.df))/(99*66))*100`% missing in `df.pred`), neural nets cannot take NA inputs. Because the benefits of NN arise in large datasets, and our data is relatively small to begin with, we'll impute missing values prior to building, training and fitting our network. 
 
-Defining neural nets:   
-  + normalization
-  + two layers with 8 neurons in each layer
-  + Activation function is `Relu`
-  + Output layer is `linear`
-  
-Resources used:
-https://www.tensorflow.org/tutorials/keras/regression
-https://tensorflow.rstudio.com/reference/keras/layer_batch_normalization/
-https://tensorflow.rstudio.com/tutorials/beginners/basic-ml/tutorial_basic_regression/
-https://machinelearningmastery.com/how-to-choose-loss-functions-when-training-deep-learning-neural-networks/
-https://stackoverflow.com/questions/37232782/nan-loss-when-training-regression-network
-https://rstudio-pubs-static.s3.amazonaws.com/344055_0c737f77c0ef4e36b6865cb843a7bb4a.html
-https://keras.io/api/metrics/regression_metrics/
-https://towardsdatascience.com/keras-and-r-predicting-blood-glucose-levels-with-the-sequential-model-596efe89a6b8
 
-Imputing, setting dummy vars & re-subsetting `data.imp.train` and `data.imp.val`.
+Imputing, setting dummy vars & re-subsetting `data.imp.train` and `data.imp.val`:
 
 ```{r}
 #skim(data.train.test)
@@ -967,8 +933,8 @@ data_xtrain <- nn.val %>% dplyr::select(-VSI) %>% as.matrix()
 data_ytrain <- nn.val %>% dplyr::select(VSI) %>% as.matrix()
 ```
 
+Then we build and compile our model: 
 
-Build and compile model
 ```{r}
 # set seed for keras
 set_random_seed(10)
@@ -980,7 +946,7 @@ model <- keras_model_sequential() %>%
   layer_dense(units = 32, activation = "relu") %>%
   layer_dropout(0.25) %>% # https://stackoverflow.com/questions/37232782/nan-loss-when-training-regression-network
   layer_dense(units = 12, activation = "relu") %>%  
-  layer_dropout(0.25) %>% 
+  #layer_dropout(0.25) %>% 
   layer_dense(units = 1, activation = "linear") # output = 1 unit for linear(?) regression
 print(model)
 
@@ -993,7 +959,7 @@ model %>%
   )
 ```
 
-Fitting model
+Finally we fit.
 
 ```{r}
 set_random_seed(10)
@@ -1001,7 +967,7 @@ fit.nn <- model %>% fit(
   data_xtrain,
   data_ytrain,
   epochs = 150,
-  batch_size = 12,
+  batch_size = 24,
   validation_split = .15 # set 15% of the data_xtrain, data_ytrain as the validation data
 )
 
@@ -1018,16 +984,16 @@ The lowest MSE calculated on the internal validation sample (15% of `data.train`
 set_random_seed(10)
 #build model
 p <- dim(data_xtrain)[2] # number of input variables (columns)
-model <- keras_model_sequential() %>%
+model2 <- keras_model_sequential() %>%
   layer_batch_normalization(input_shape = c(p)) %>% #recommended, not certain it's correct
   layer_dense(units = 32, activation = "relu") %>%
-  layer_dropout(0.25) %>% #
-  layer_dense(units = 12, activation = "relu") %>%  
   layer_dropout(0.25) %>% 
+  layer_dense(units = 12, activation = "relu") %>%  
+  #layer_dropout(0.25) %>% 
   layer_dense(units = 1, activation = "linear") # output = 1 unit for linear(?) regression
-print(model)
+print(model2)
 #compile mode
-model %>%
+model2 %>%
   compile(
     loss = "mse",
     optimizer = optimizer_rmsprop(), #alternative "adam"
@@ -1035,7 +1001,7 @@ model %>%
   )
 
 set_random_seed(10)
-fit.nn.full <- model %>% fit(
+fit.nn.full <- model2 %>% fit(
   data_xtrain,
   data_ytrain,
   epochs = min.epoch,
@@ -1221,7 +1187,7 @@ data.train.test_diff <- data.train.test %>% dplyr::select(-c(contains("_2018") |
 ## Comparing Regsubsets Models
 
 
-```{r}
+```{r, eval=FALSE}
 #stash year and non-numeric variables
 dtt.fac <- data.train %>%
   select(negate(is.numeric))
