@@ -29,7 +29,9 @@ if(!require("pacman")) install.packages("pacman")
 
 pacman::p_load(tidyverse, dplyr, ggplot2, ggthemes, data.table, lubridate,
                GGally, RColorBrewer, ggsci, plotROC, usmap,
-               plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car, keras, neuralnet, tensorflow, missForest, corrplot, tree, randomForest, fastDummies)
+               plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car, 
+               keras, neuralnet, tensorflow, missForest, corrplot, tree, randomForest, fastDummies,
+               rworldmap, RColorBrewer, classInt)
 ```
 
 
@@ -447,18 +449,29 @@ vac.sum.with.VSI %>%
     geom_bar(show.legend = FALSE, stat = "identity") +
     xlab("Country") +
     ylab("VSI") + 
-    ggtitle("Vaccination Success Index score") +
+    ggtitle("Vaccination Success Index (VSI) distribution") +
     theme_bw() +
-    theme(axis.text.x = element_text(angle = 60, hjust=1))
-ggplot(vac.sum.with.VSI, aes(x = reorder(country, -VSI), y = VSI, fill = country)) + 
-  geom_bar(stat = "identity")
+    theme(axis.text.x = element_text(angle = 60, hjust = 1))
 
 #summary(vac.sum.with.VSI$VSI)#VSI range
+
+# plotting VSI world map using https://cran.r-project.org/web/packages/rworldmap/vignettes/rworldmap.pdf
+sPDF <- joinCountryData2Map(vac.sum.with.VSI, joinCode = "NAME", nameJoinColumn = "country")
+colourPalette <- RColorBrewer::brewer.pal(9, "RdPu") # define colors
+classInt <- classInt::classIntervals(sPDF[["VSI"]], n = 9, style = "jenks") # getting class intervals using a ✬jenks✬ classification in classInt package
+catMethod = classInt[["brks"]]
+# select & run the two lines below together
+mapParams <- mapCountryData(sPDF, nameColumnToPlot = "VSI", 
+                            addLegend = FALSE, catMethod = catMethod, colourPalette = colourPalette )
+do.call(addMapLegend, c(mapParams, legendLabels = "all", legendWidth = 0.5, legendIntervals = "data", legendMar = 2))
+
+# default plot
+# mapCountryData(sPDF, nameColumnToPlot="VSI" ) # beware, colors will hurt your eyes
+
 ```
 
-We can see that Somalia appears to be the country with the lowest VSI, and Cuba appears to have the highest VSI. 
+Based on the distribution plot, we can see that Somalia appears to be the country with the lowest VSI, and Cuba appears to have the highest VSI. The world map furthermore indicates that generally, North and South America, Europe, Australia and Japan are some regions with higher VSI scores, whereas regions including Africa, Russia and some Asian countries seem to have lower VSI scores. Note that countries without any color are not included in this dataset as they did not report vaccination data required for the computation of VSI. 
 
-*Joelle to add worldmap of VSI*
 
 # Compiling Dataset
 
@@ -512,8 +525,9 @@ Let's now see how various socioeconomic, sustainability and political factors ma
 
 * Linear models
 * LASSO model selection
-* random forests
-* neural networks?
+* Random forests
+* Regsubsets
+* Neural networks
 
 
 # Linear models
@@ -523,8 +537,6 @@ In the first approach, we are creating several linear models by selecting variab
   + "COVID burden" factors, i.e. how heavily a country suffered in terms of number of cases and deaths prior to vaccination start
   + Political and country development factors
   + Full model: we combine the most relevant factors into a comprehensive model
-  
-In the second approach, we will run more inclusive, data-driven models using LASSO. 
 
 
 ### Thematic linear models
@@ -550,22 +562,20 @@ lm.econ.1 <- lm(data = data.train, formula = VSI ~ ExportGoodsServices.GDP_avg +
                   GDP.PerCapita.Current_avg +
                   ConsumerPriceInflation_avg)
 summary(lm.econ.1)
-#Anova(lm.econ.1)
 
-#commented b/c fit using the 60% data.train, will need to be checked:
+# remove non-significant variables w backward selection
+lm.econ.1.refined <- update(lm.econ.1, .~. -ExportGoodsServices.GDP_avg)
+summary(lm.econ.1.refined)
 
-# # remove non-significant variables w backward selection
-# lm.econ.1.refined <- update(lm.econ.1, .~. -FinalConsumptionExpenditure.GDP_avg)
-# #Anova(lm.econ.1.refined)
-# lm.econ.2.refined <- update(lm.econ.1.refined, .~. -ExportGoodsServices.GDP_avg)
-# #Anova(lm.econ.2.refined)
-# lm.econ.3.refined <- update(lm.econ.2.refined, .~. -GDP.Current_avg )
-# #Anova(lm.econ.3.refined)
-# lm.econ.4.refined <- update(lm.econ.3.refined, .~. -ConsumerPriceInflation_avg)
-# Anova(lm.econ.4.refined)
+lm.econ.2.refined <- update(lm.econ.1.refined, .~. -FinalConsumptionExpenditure.GDP_avg)
+summary(lm.econ.2.refined)
+
+lm.econ.3.refined <- update(lm.econ.2.refined, .~. -GDP.Current_avg)
+summary(lm.econ.3.refined)
+
 ```
-  
-The GDP per capita has a significant effect on Vaccination Success Index at the 0.05 level. This indicates that an increase in the per-capita GDP of a nation averaged over the last 17 years corresponds to an increase in the success of that country's vaccination campaign. 
+   
+GDP per capita and consumer price inflation have a significant effect on Vaccination Success Index at the 0.05 level. More specifically, the model indicates that an increase in the per-capita GDP of a nation averaged over the last 17 years corresponds to an increase in the success of that country's vaccination campaign. Conversely, an increase in consumer price inflation averaged over the last 17 years corresponds to a decrease in a country's vaccination success.
 
 #### "COVID burden" factors
 
@@ -574,37 +584,26 @@ Let's now build a model focused on COVID related factors. Note that all variable
 
 Selected variables:
 
-* `cumulative_total_cases_per_hundred_prevac` - last reported total number of cases prior to vaccination start
-* `cumulative_total_deaths_per_hundred_prevac` - last reported total number of deaths prior to vaccination start
 * `monthly.new.cases.per.100_max` - max monthly case rate reached prior to vaccination start
 * `monthly.new.deaths.per.100_max` - max monthly death rate reached prior to vaccination start
-* `monthly_new_cases_per_hundred_prevac` - last reported monthly case rate reached prior to vaccination start
 
 
 ```{r}
+
 # build covid model
-lm.covid.1 <- lm(VSI ~ cumulative_total_cases_per_hundred_prevac +
-                   cumulative_total_deaths_per_hundred_prevac +
-                   monthly.new.cases.per.100_max +
-                   monthly.new.deaths.per.100_max +
-                   monthly_new_cases_per_hundred_prevac, data = data.train)
+lm.covid.1 <- lm(VSI ~ monthly.new.cases.per.100_max + monthly.new.deaths.per.100_max + cumulative_total_deaths_per_hundred_prevac, data = data.train)
 summary(lm.covid.1)
-Anova(lm.covid.1)
 
-#LOL only the intercept is significant, going to do some forward selection - start with cumulative_total_cases_per_hundred_prevac!
-lm.covid.death <- lm(VSI ~ cumulative_total_deaths_per_hundred_prevac, data = data.train)
-summary(lm.covid.death)
-lm.covid.f2 <- update(lm.covid.death, .~. + cumulative_total_cases_per_hundred_prevac)
-summary(lm.covid.f2) #tried a few different options, adding more COVID vars don't seem to be predictive
-Anova(lm.covid.f2)
+# remove non-significant variables w backward selection
+lm.covid.1.refined <- update(lm.covid.1, .~. -monthly.new.deaths.per.100_max)
+summary(lm.covid.1.refined)
 
-# based on Anova, looks like cumulative_total_cases_per_hundred_prevac is the way to go - forward selection on this!
-lm.covid.case <- lm(VSI ~ cumulative_total_cases_per_hundred_prevac, data = data.train)
-summary(lm.covid.case)
+lm.covid.2.refined <- update(lm.covid.1.refined, .~. -cumulative_total_deaths_per_hundred_prevac)
+summary(lm.covid.2.refined)
 ```
+  
+The peak number of monthly new cases per hundred prior to vaccination start has a significant effect on `VSI`. Therefore, vaccination success seems influenced by a country's peak number of cases prior to starting its vaccination campaign, where a higher number of cases leads to a better vaccination score. This could be explained by the fact that people may have a stronger vaccination incentive when COVID cases are more frequent around them. 
 
-**corrected inputs, only intercept is significant now**
-*old: Cumulative deaths per hundred prior to vaccination start, total number of cases and new deaths last reported prior to vaccination start appear to significantly impact `VSI`. After refining the model, the number of cases last reported prior to vaccination start appears to be the most important factor influencing `VSI`. Therefore, vaccination success seems influenced by a country's number of cases shortly before starting its vaccination campaign, where a higher number of cases leads to a better vaccination score. This could be explained by the fact that people may have a stronger vaccination incentive when COVID cases are more frequent around them.*  
 
 #### Political and country development factors
 
@@ -640,24 +639,23 @@ lm.political.1 <- lm(VSI ~ WorldRegion +
 summary(lm.political.1)
 Anova(lm.political.1)
 
-#commented b/c fit using the 60% data.train, will need to be checked:
+# remove non-significant variables w backward selection
+lm.political.1.refined <- update(lm.political.1, .~. -GDP.PerCapita.Current_avg)
+#Anova(lm.political.1.refined)
+lm.political.2.refined <- update(lm.political.1.refined, .~. -WorldBankIncomeClass_avg)
+#Anova(lm.political.2.refined)
+lm.political.3.refined <- update(lm.political.2.refined, .~. -UrbanPopulation.Prop_avg)
+#Anova(lm.political.3.refined)
+lm.political.4.refined <- update(lm.political.3.refined, .~. -Electricity.Access_avg)
+#Anova(lm.political.4.refined)
+lm.political.5.refined <- update(lm.political.4.refined, .~. -IndividualsUsingInternet_latest)
+#Anova(lm.political.5.refined)
+lm.political.6.refined <- update(lm.political.5.refined, .~. -CompulsoryEducationDurationYears_latest)
+Anova(lm.political.6.refined)
 
-# # remove non-significant variables w backward selection
-# lm.political.1.refined <- update(lm.political.1, .~. -GDP.PerCapita.Current_avg)
-# #Anova(lm.political.1.refined)
-# lm.political.2.refined <- update(lm.political.1.refined, .~. -WorldBankIncomeClass_avg)
-# #Anova(lm.political.2.refined)
-# lm.political.3.refined <- update(lm.political.2.refined, .~. -UrbanPopulation.Prop_avg)
-# #Anova(lm.political.3.refined)
-# lm.political.4.refined <- update(lm.political.3.refined, .~. -Electricity.Access_avg)
-# #Anova(lm.political.4.refined)
-# lm.political.5.refined <- update(lm.political.4.refined, .~. -IndividualsUsingInternet_latest)
-# #Anova(lm.political.5.refined)
-# lm.political.6.refined <- update(lm.political.5.refined, .~. -CompulsoryEducationDurationYears_latest)
-# Anova(lm.political.6.refined)
 ```
 
-World region, and 17-year averages of life expectancy, women in business and law professions, and regime type seem to predict VSI.
+World region and 17-year averages of life expectancy, women in business and law professions, and regime type have a significant effect on VSI. More specifically, it appears that compared to the reference world region (Central and Southern Asia), all other regions are associated with lower VSI except Eastern and South-Eastern Asia, who have a higher VSI. Higher life expectancy and more women employed in business or law are associated with higher VSI. Finally, compared to the reference regime type (closed autocracy, which includes countries such as Angola, Morocco, Jordan, etc.), other regime types are associated with lower VSI scores. 
 
 
 #### Full model
@@ -678,27 +676,42 @@ Selected variables:
 
 # build full model
 lm.full <- lm(VSI ~ GDP.PerCapita.Current_avg +
-             cumulative_total_cases_per_hundred_prevac +
-             WorldRegion +
-            LifeExpenctancy_avg +
-              WomenInBusinessLawIndex_avg +
-              RegimeType_avg,
+                ConsumerPriceInflation_avg +
+                monthly.new.cases.per.100_max +
+                WorldRegion +
+                LifeExpenctancy_avg +
+                WomenInBusinessLawIndex_avg +
+                RegimeType_avg,
              data = data.train)
 Anova(lm.full)
-summary(lm.full)
 
 # remove non-significant variables
-lm.full.1.refined <- update(lm.full, .~. -cumulative_total_cases_per_hundred_prevac)
+lm.full.1.refined <- update(lm.full, .~. -cumulative_total_cases_per_hundred_prevac 
+                            -GDP.PerCapita.Current_avg
+                            -monthly.new.cases.per.100_max 
+                            -ConsumerPriceInflation_avg)
 Anova(lm.full.1.refined)
-lm.full.2.refined <- update(lm.full.1.refined, .~. -GDP.PerCapita.Current_avg)
-Anova(lm.full.2.refined)
-summary(lm.full.2.refined)
+summary(lm.full.1.refined)
 
-# plotting model diagnosis plots
-plot(lm.full.2.refined, 1:2)
+# iterative way
+lm.full.1.refined <- update(lm.full, .~. -monthly.new.cases.per.100_max)
+# Anova(lm.full.1.refined)
+lm.full.2.refined <- update(lm.full.1.refined, .~. -GDP.PerCapita.Current_avg)
+# Anova(lm.full.2.refined)
+lm.full.3.refined <- update(lm.full.2.refined, .~. -ConsumerPriceInflation_avg)
+Anova(lm.full.3.refined)
+summary(lm.full.3.refined)
+
+# generating diagnostic plots
+par(mfrow = c(1,2), mar = c(5,2,4,2), mgp = c(3,0.5,0)) # plot(fit3) produces several plots
+plot(lm.full.1.refined, 1, pch = 16) # residual plot
+abline(h = 0, col = "blue", lwd = 2)
+plot(lm.full.1.refined, 2) # qqplot
 ```
 
-*rewrite this! think it makes sense to keep plot, since life expectancy is most predictive?* When using all relevant variables found in prior models, it turns out that life expectancy (reported in 2018) is the only variable having a significant effect on `VSI`. Diagnostic plots show that the model sufficiently fulfills linear model assumptions of normality and homoscedasticity. The relationship between life expectancy and VSI is plotted here: 
+When using all relevant variables found in prior models, it turns out that world region, life expectancy, the number of women employed in business and law, and regime type have a significant effect on `VSI`. Diagnostic plots show that the model sufficiently fulfills linear model assumptions of normality and homoscedasticity.   
+
+The relationship between life expectancy and VSI is plotted here: 
 
 
 ```{r}
@@ -720,8 +733,8 @@ plot_VSI_lifexp <- final.df %>% # using full df here to include country informat
            size = 4, # font size
            label = paste0("Correlation: ", sprintf("%.3f", cor_value), "\n", # correlation label
                           "p-value = ", sprintf("%.3f", pval))) # pvalue label
-plot_VSI_lifexp
-# ggplotly(plot_VSI_lifexp) # generate interactive plot
+# plot_VSI_lifexp
+ggplotly(plot_VSI_lifexp) # generate interactive plot
 
 ```
 
@@ -768,7 +781,7 @@ fit.1se.lm <- lm(VSI~., data = wsd.avg.vsi.lasso)
 summary(fit.1se.lm) 
 ```
 
-LASSO results using the suggest similar variables found with linear models. *maybe elaborate here*
+LASSO results using the `coef.1se` suggest again that life expectancy is an important predictor of `VSI`. In addition, the LASSO approach selected the 17 year average number of individuals using internet. When feeding these into a linear model, both have a significant effect on `VSI`.  
 
 ## Trees & Random Forests
 
