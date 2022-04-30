@@ -45,10 +45,13 @@ Given the above, the goals of this project are:
 ## Data Description
 To address the goals of our project, we have combined the following data sets to form an array of predictors: 
 * The [World Sustainability Dataset](https://www.kaggle.com/datasets/truecue/worldsustainabilitydataset): A data set describing several measures of a nation's social, political, economic, and climate-related characterization. This data set was originally aggregated for the TrueCue Women+Data Hackathon, and was released as publicly available after the event. 
-* [OTHER DATASETS]
+* The [World Sustainability Dataset]
+* The [COVID vaccines](https://www.kaggle.com/datasets/gpreda/covid-world-vaccination-progress): A data set containing several vaccination measures, including cumulative vaccinations, the total number of vaccinated people and the number of vaccine doses administered per individual. The data set is updated daily based on Our World in Data GitHub repository for [covid-19](https://github.com/owid/covid-19-data) but for the purpose of this study, data includes vaccine rates up until March 17, 2022.  
+* [COVID cases](https://www.kaggle.com/datasets/josephassaker/covid19-global-dataset): A dataset containing daily reports of cumulative and new cases and deaths in each country. [Country populations in 2021](https://github.com/owid/covid-19-data/blob/master/scripts/input/un/population_latest.csv) are added to this data set to compute "per hundred" variables in addition to the existing cumulative cases and deaths. 
+
 
 ### Vaccination Success Index 
-The success of a nation's vaccination campaign is described in terms of many variables, including number of vaccinated, days to vaccinating percentages of the population, and daily vaccinations. Describing, quantifying, and predicting such a multifaceted concept can be a challenge. To address this, we have developed a quantified measure of vaccination success that takes into account several such factors pertaining to national vaccination campaigns. We have termed this measure the Vaccination Success Index (VSI). Demonstrated in more detail further, the VSI was developed by applying Principal Component Analysis (PCA) to various measures of world nations' vaccination campaigns. VSI serves as our primary outcome measure. 
+The success of a nation's vaccination campaign reflected in many variables, including number of vaccinated, days to vaccinating percentages of the population, and daily vaccinations. Describing, quantifying, and predicting such a multifaceted concept can be a challenge. To address this, we have developed a quantified measure of vaccination success that takes into account several such factors pertaining to national vaccination campaigns. We have termed this measure the Vaccination Success Index (VSI). Demonstrated in more detail further, the VSI was developed by applying Principal Component Analysis (PCA) to various measures of world nations' vaccination campaigns. VSI serves as our primary outcome measure. 
 
 ## Results 
 Our analyses have yielded several useful insights that may help inform global policy decisions as international resources are allocated to help struggling nations increase vaccination success. 
@@ -59,7 +62,7 @@ Linear Regression models based on economic factors, disease burden factors, and 
 * Life Expectancy (Prior to Pandemic)
 ** Policy Recommendation: Life expectancy often serves as an indicator of a country's overall medical infrastructure. Medical infrastructure resources should be the focus of aid, more so than economic relief alone. 
 * Women in Business and Law
-** Policy Recommendation: This may indicate a nation's gender-based social liberality. Aid should thus be considered for nations that are 
+** Policy Recommendation: This may indicate a nation's gender-based social liberality. Aid should thus be considered for nations that are **needs end of sentence - ex: nations that are socially more conservative?**
 * Regime Type
 ** Policy Recommendation: Mutual aid relationships should be facilitated between nations of varying regime types. 
 * Number of Internet Users
@@ -67,10 +70,19 @@ Linear Regression models based on economic factors, disease burden factors, and 
 
 Furthermore, we have developed more robust models that predict VSI with varying degrees of accuracy (Linear Regression & LASSO, Trees & Random Forest, and Artificial Neural Networks). While predictive accuracy was moderate for each model individually, by creating an ensemble model that averages the predictions of all models, we have achieved a robust predictive ability, that could help forecast vaccination success in subsequent COVID-19 vaccination campaigns and future pandemics. 
 
+## Conclusion
+
+We have developed a robust vaccination index capturing a country's past vaccination success and our models highlighted several political, economic, social and health-related factors that have a crucial influence on a country's ability to vaccinate its populace. However, this analysis comes with certain limitations. First, the dataset is constrained to countries for which a sufficient amount of data was present to compute both VSI and summary political, economic, social and health-related factors. While this was possible for a substantial number of countries (n = 99), some countries had to be dropped (n = 126 from the vaccination data, n = 42 from the world sustainability data) including countries such as China, which did not sufficiently report on vaccination data but would be a very important country to include. By obtaining more complete information, future studies may further improve the completeness of this dataset and thereby increase the accuracy of VSI predictions. Moreover, in addition to the factors found to influence VSI in this study, it is likely that other factors influence a country's vaccination success, including more psychosocial and individual characteristics related to beliefs around vaccinations. 
+
+In conclusion, **out of inspiration rn, would be nice to have a little conclusion sentence here**
+
+
 
 # Data Preprocessing
 
 Before starting to do more involved EDA, we will preprocess our data to ensure we have wokable datasets to begin our exploration with. 
+
+## WSD preprocessing
 
 First, we will begin to process the World Sustainability Dataset. Let's read in the raw data and take a look at a few rows to get a sense of what it looks like. 
 ```{r, eval = FALSE}
@@ -145,7 +157,163 @@ wsd <- data.processed
 save(wsd, file="data/WorldSustainabilityData_Processed.Rda")
 ```
 
-Load outputs from EDA Rmds
+## COVID preprocessing
+
+Next, we will read in COVID cases/deaths and vaccination data sets. We remove countries with too many NAs and generate new variables indicating cases and deaths per hundred, to account for the total population in each country.  
+
+```{r}
+
+# load cases data
+df_cases <- read.csv("data/worldometer_coronavirus_daily_data.csv")
+
+# transform some variables
+df_cases <- df_cases %>%
+  mutate(country = as.factor(country),
+         date = lubridate::mdy(date),
+         year = lubridate::year(date),
+         month_num = lubridate::month(date),
+         week = as.factor(lubridate::week(date)))
+
+df_cases$month <- month.abb[df_cases$month_num] # convert to month names
+head(df_cases)
+
+#load and merge in population data
+df_pop <- read.csv("data/pop_2021.csv")
+df_pop <- df_pop %>% rename(country=entity) %>%
+  select(country, population)
+df_pop$country<-recode_factor(df_pop$country, "United States" = "USA")
+
+#create new metrics per hundred
+df_cases <- left_join(df_cases, df_pop, by = "country") %>%
+  mutate(daily_new_cases_per_hundred = (daily_new_cases/population)*100,
+        daily_new_deaths_per_hundred = (daily_new_deaths/population)*100,
+        cumulative_total_cases_per_hundred = (cumulative_total_cases/population)*100,
+        active_cases_per_hundred = (active_cases/population)*100,
+        cumulative_total_deaths_per_hundred = (cumulative_total_deaths/population)*100)
+
+# create new monthly and weekly cases/deaths variables
+df_cases <- df_cases %>%
+  # monthly
+  group_by(month_num, year, country) %>% 
+  mutate(
+    monthly_new_cases = sum(daily_new_cases, na.rm = TRUE),
+    monthly_new_deaths = sum(daily_new_deaths, na.rm = TRUE),
+    monthly_new_cases_per_hundred = sum(daily_new_cases_per_hundred, na.rm = TRUE),
+    monthly_new_deaths_per_hundred = sum(daily_new_deaths_per_hundred, na.rm = TRUE),
+    month_year = make_date(year, month_num) 
+  ) %>%
+  ungroup() %>%
+  # weekly
+  group_by(week, year, country, month_num) %>% 
+  mutate(
+    weekly_new_cases = mean(daily_new_cases, na.rm = TRUE),
+    weekly_new_deaths = mean(daily_new_deaths, na.rm = TRUE),
+    weekly_new_cases_per_hundred = sum(daily_new_cases_per_hundred, na.rm = TRUE),
+    weekly_new_deaths_per_hundred = sum(daily_new_deaths_per_hundred, na.rm = TRUE),
+    month_year = make_date(year, month_num)
+    )
+
+# load vaccination data
+df_vac <- read.csv("data/country_vaccinations.csv")
+
+# transform some variables
+df_vac <- df_vac %>%
+  mutate(country = as.factor(country),
+         country = recode_factor(country, `United States` = "USA"),
+         iso_code = as.factor(iso_code),
+         vaccines = as.factor(vaccines),
+         date = lubridate::ymd(date),
+         year = lubridate::year(date),
+         month_num = lubridate::month(date))
+
+df_vac$month <- month.abb[df_vac$month_num] # convert to month names
+
+# keep only countries that report on people vaccinated per hundred as this is one of the more important metrics
+df_vac_nona_clean <- df_vac %>%
+  # filter to keep only non-NA in people_vaccinated_per_hundred
+  drop_na(people_vaccinated_per_hundred) %>%
+  # group by month, year
+  group_by(month, year, country) %>%
+  # select first available value of each month
+  filter(date == min(date))
+
+# merge the cases and vaccinations dataset by country and date keeping all the df_cases rows
+df_merged <- merge(df_cases, 
+                   df_vac_nona_clean[ , -which(names(df_vac_nona_clean) %in% c("year", "month_num","month"))], 
+                   by = c("country", "date"), all.x = TRUE)
+
+
+# find dates corresponding to important vaccination milestones
+df_merged <- df_merged %>%
+  group_by(country) %>%
+  mutate(vaccination_events = as.factor(case_when(people_vaccinated_per_hundred >= 90 ~ "vac_90pct",
+                                        people_vaccinated_per_hundred >= 80 ~ "vac_80pct",
+                                        people_vaccinated_per_hundred >= 70 ~ "vac_70pct",
+                                        people_vaccinated_per_hundred >= 60 ~ "vac_60pct",
+                                        people_vaccinated_per_hundred >= 50 ~ "vac_50pct",
+                                        people_vaccinated_per_hundred >= 40 ~ "vac_40pct",
+                                        people_vaccinated_per_hundred >= 30 ~ "vac_30pct",
+                                        people_vaccinated_per_hundred >= 20 ~ "vac_20pct",
+                                        people_vaccinated_per_hundred >= 10 ~ "vac_10pct",
+                                        people_vaccinated_per_hundred >= 0 & people_vaccinated_per_hundred < 10 ~ "vac_start",
+                                        TRUE ~ "no")),
+         vaccination_events = replace(vaccination_events, duplicated(vaccination_events), NA) # keep only first occurrence of an event
+         )  
+
+# Add percent vaccinated bins AT LATEST REPORTED DATE
+bins_df <- df_vac_nona_clean %>%
+  group_by(country) %>%
+  filter(date == max(date)) %>% # filter for the last reported date in each country
+  # create new binning variable
+  mutate(binned_people_vaccinated_per_hundred = case_when(people_vaccinated_per_hundred < 10 ~ "Under 10%", 
+                                                          people_vaccinated_per_hundred >= 10 & people_vaccinated_per_hundred < 20 ~ "10-20%",
+                                                          people_vaccinated_per_hundred >= 20 & people_vaccinated_per_hundred < 30 ~ "20-30%",
+                                                          people_vaccinated_per_hundred >= 30 & people_vaccinated_per_hundred < 40 ~ "30-40%",
+                                                          people_vaccinated_per_hundred >= 40 & people_vaccinated_per_hundred < 50 ~ "40-50%",
+                                                          people_vaccinated_per_hundred >= 50 & people_vaccinated_per_hundred < 60 ~ "50-60%",
+                                                          people_vaccinated_per_hundred >= 60 & people_vaccinated_per_hundred < 70 ~ "60-70%",
+                                                          people_vaccinated_per_hundred >= 70 & people_vaccinated_per_hundred < 80 ~ "70-80%",
+                                                          people_vaccinated_per_hundred >= 80 & people_vaccinated_per_hundred < 90 ~ "80-90%",
+                                                          people_vaccinated_per_hundred >= 90 ~ "Above 90%"
+                                                          )) %>%
+  select(country, binned_people_vaccinated_per_hundred)
+
+# merge with main
+df_merged <- merge(df_merged, bins_df, by = c("country"), all.x = TRUE)
+
+# checking that there are no countries with more than 10% vaccinated at their vac_start mark
+df_merged %>%
+  filter(vaccination_events == "vac_start" & people_vaccinated_per_hundred > 10) %>%
+  select(country, vaccination_events, people_vaccinated_per_hundred)
+
+# find dates corresponding to important vaccination milestones
+df_merged <- df_merged %>%
+  group_by(country) %>%
+  mutate(vaccine_dose_events = as.factor(case_when(total_vaccinations_per_hundred >= 300 ~ "3_doses",
+                                                   total_vaccinations_per_hundred >= 200 ~ "2_doses",
+                                                   total_vaccinations_per_hundred >= 100 ~ "1_dose",
+                                                   TRUE ~ "no")),
+         vaccine_dose_events = replace(vaccine_dose_events, duplicated(vaccine_dose_events), NA) # keep only first occurrence of an event
+         )  
+
+# let's look at df_merged
+head(df_merged)
+dim(df_merged)
+
+# save merged df (this will be used to merge with the sustainability data)
+write.csv(df_merged, "data/covid_cases_vaccines_clean.csv")
+covid <- df_merged %>% ungroup()
+save(covid, file = "data/covid_cases_vaccines_clean.Rda")
+
+```
+
+
+# WSD EDA & Summary Values
+
+To start, we'll try several different methods of summarizing the longitudinal WSD data into a single "timepoint". We selected the latest data reported for each country (restricted to 2016 or later) and calculated: the average of each parameter over time (2001 to 2018); the average of the last 3 years of data (2016-2018); and the relative and absolute change in each parameter over time (2001-2018). In order to maximize completeness and recency of the dataset while minimizing colinearity, we decided to use each country's latest data and data averaged over 17 years in our models below *question - except nns?*. Code for each unused summary dataframe can be found in the appendix.
+
+Load outputs from EDA:
+
 ```{r load.dfs}
 load("data/WorldSustainabilityData_Processed.Rda")
 #skim(wsd)
@@ -169,11 +337,11 @@ covid$country <- recode_factor(covid$country, "UK"="United Kingdom", "Gambia"="G
 wsd$country <- recode_factor(wsd$country,  "Iran, Islamic Rep."="Iran", "Bosnia and Herzegovina"="Bosnia And Herzegovina", "Cote d'Ivoire"="Cote D Ivoire", "Guinea-Bissau"="Guinea Bissau", "Kyrgyz Republic"="Kyrgyzstan", "North Macedonia"="Macedonia", "Eswatini"="Swaziland", "Vietnam"="Viet Nam", "Timor-Leste"="Timor Leste", "Slovak Republic"="Slovakia", "Congo, Rep."="Congo", "Congo, Dem. Rep."="DRC")
 ```
 
-Before attempting to merge, I'll parse down the dataframes so we can hopefully we can mix and match as needed to get what we need for our final analyses.
 
 # WSD EDA & Summary Values
 
 To start, we'll try several different methods of summarizing the longitudinal WSD data into a single "timepoint". We selected the latest data reported for each country (restricted to 2016 or later) and calculated: the average of each parameter over time (2001 to 2018); the average of the last 3 years of data (2016-2018); and the relative and absolute change in each parameter over time (2001-2018). In order to maximize completeness and recency of the dataset while minimizing colinearity, we decided to use each country's latest data and data averaged over 17 years in our models below. Code for each unused summary dataframe can be found in the appendix.
+
 
 ```{r}
 # latest data for each country, restricted to 2016 or later
@@ -233,6 +401,12 @@ colnames(wsd.avg.fac)[2:4] <- paste(colnames(wsd.avg.fac)[2:4], "avg", sep = "_"
 
 wsd.avg <- merge(wsd.avg.fac, wsd.avg.num, by="country") #rejoin num and fac
 table(as.factor(wsd.avg$nYears_avg)) # see yr frequencies
+ggplot(data = wsd.avg, aes(x = nYears_avg)) +
+  geom_bar(fill ="seagreen", color = "seagreen") + 
+  theme_bw() +
+  xlab("Number of years available in a given country") +
+  ylab("Number of countries") +
+  ggtitle("Frequency of countries reporting data for a given number of years")
 ```
 
 Next we'll merge the latest data and averaged data into one wide wsd dataframe and remove any variables that are highly correlated:
