@@ -460,38 +460,6 @@ We can see that Somalia appears to be the country with the lowest VSI, and Cuba 
 
 *Joelle to add worldmap of VSI*
 
-*validate VSI by showing assoc of VSI with lower mortality once vac starts (deaths last - deaths @ start date for all vac)*
-
-```{r}
-#global start-date for vaccination
-first.vac <- min(na.omit(covid$date.first.vac))
-
-#find deaths occuring post gobal start of vaccinations 
-postvac.case <- covid %>%
-  arrange(date) %>%
-  dplyr::select(country, date, cumulative_total_cases_per_hundred) %>%
-  group_by(country) %>%
-  subset(date==first.vac | date==max(date)) %>%
-  filter(n() >= 2) %>% #make sure country has data for both years
-  mutate(postvac.case.per.hundred = cumulative_total_cases_per_hundred - lag(cumulative_total_cases_per_hundred)) %>%
-  ungroup %>%
-  dplyr::select(country, postvac.case.per.hundred) %>%
-  drop_na()
-
-yval <- vac.sum.with.VSI %>% dplyr::select("country", "VSI")
-VSI.val <- inner_join(postvac.case, yval,  by=("country"))
-
-vsi.lm <- lm(postvac.case.per.hundred ~ VSI, data=VSI.val)
-summary(vsi.lm)
-
-plot_VSI_postvac.case <- VSI.val %>%
-  ggplot(aes(x = postvac.case.per.hundred, y = VSI)) +
-  geom_point(aes(group = country, color = country), show.legend = FALSE) +
-  geom_smooth(method = "lm", color = "grey") +
-  theme_bw()
-ggplotly(plot_VSI_postvac.case)
-```
-
 # Compiling Dataset
 
 We'll write our final dataset by joining our WSD predictors, prevax COVID case & death predictors, and VSI. 
@@ -862,14 +830,14 @@ We do get a warning that regsubsets still finds our data to be colinear, so we r
 
 ```{r}
 regsub.fit1 <- regsubsets(VSI ~., data.train , nvmax=25, method="forward", really.big = TRUE)
-f.e <- summary(fit1)
+f.e <- summary(regsub.fit1)
 plot(f.e$cp, xlab="Number of predictors", 
      ylab="Cp", col="red", pch=16)
 
 opt.size <- which.min(f.e$cp) #pick size with lowest cp
 regsub.fit.var <- f.e$which # logic indicators which variables are in
 
-regsub.vars <- colnames(fit.var)[fit.var[opt.size,]][-1] # output variables selected
+regsub.vars <- colnames(regsub.fit.var)[regsub.fit.var[opt.size,]][-1] # output variables selected
 regsub.vars
 
 fit1.lm <- lm(VSI ~ WorldRegion +
@@ -900,23 +868,8 @@ Reducing to only significantly predictive variables, we find they are fairly sim
 
 Next, we'll run neural nets. Though the data has high completion to begin with (only `r (sum(is.na(final.df))/(99*66))*100`% missing in `df.pred`), neural nets cannot take NA inputs. Because the benefits of NN arise in large datasets, and our data is relatively small to begin with, we'll impute missing values prior to building, training and fitting our network. 
 
-Defining neural nets:   
-  + normalization
-  + two layers with 8 neurons in each layer
-  + Activation function is `Relu`
-  + Output layer is `linear`
-  
-Resources used:
-https://www.tensorflow.org/tutorials/keras/regression
-https://tensorflow.rstudio.com/reference/keras/layer_batch_normalization/
-https://tensorflow.rstudio.com/tutorials/beginners/basic-ml/tutorial_basic_regression/
-https://machinelearningmastery.com/how-to-choose-loss-functions-when-training-deep-learning-neural-networks/
-https://stackoverflow.com/questions/37232782/nan-loss-when-training-regression-network
-https://rstudio-pubs-static.s3.amazonaws.com/344055_0c737f77c0ef4e36b6865cb843a7bb4a.html
-https://keras.io/api/metrics/regression_metrics/
-https://towardsdatascience.com/keras-and-r-predicting-blood-glucose-levels-with-the-sequential-model-596efe89a6b8
 
-Imputing, setting dummy vars & re-subsetting `data.imp.train` and `data.imp.val`.
+Imputing, setting dummy vars & re-subsetting `data.imp.train` and `data.imp.val`:
 
 ```{r}
 #skim(data.train.test)
@@ -944,12 +897,12 @@ data_xtrain <- nn.train %>% dplyr::select(-VSI) %>% as.matrix()
 data_ytrain <- nn.train %>% dplyr::select(VSI) %>% as.matrix()  # find y
 
 # ## validation input/y
-data_xtrain <- nn.val %>% dplyr::select(-VSI) %>% as.matrix()
-data_ytrain <- nn.val %>% dplyr::select(VSI) %>% as.matrix()
+data_xval <- nn.val %>% dplyr::select(-VSI) %>% as.matrix()
+data_yval <- nn.val %>% dplyr::select(VSI) %>% as.matrix()
 ```
 
+Then we build and compile our model: 
 
-Build and compile model
 ```{r}
 # set seed for keras
 set_random_seed(10)
@@ -974,7 +927,7 @@ model %>%
   )
 ```
 
-Fitting model
+Finally we fit.
 
 ```{r}
 set_random_seed(10)
@@ -982,7 +935,7 @@ fit.nn <- model %>% fit(
   data_xtrain,
   data_ytrain,
   epochs = 150,
-  batch_size = 12,
+  batch_size = 8,
   validation_split = .15 # set 15% of the data_xtrain, data_ytrain as the validation data
 )
 
@@ -999,16 +952,16 @@ The lowest MSE calculated on the internal validation sample (15% of `data.train`
 set_random_seed(10)
 #build model
 p <- dim(data_xtrain)[2] # number of input variables (columns)
-model <- keras_model_sequential() %>%
+model2 <- keras_model_sequential() %>%
   layer_batch_normalization(input_shape = c(p)) %>% #recommended, not certain it's correct
   layer_dense(units = 32, activation = "relu") %>%
-  layer_dropout(0.25) %>% #
+  layer_dropout(0.25) %>% 
   layer_dense(units = 12, activation = "relu") %>%  
   layer_dropout(0.25) %>% 
   layer_dense(units = 1, activation = "linear") # output = 1 unit for linear(?) regression
-print(model)
+print(model2)
 #compile mode
-model %>%
+model2 %>%
   compile(
     loss = "mse",
     optimizer = optimizer_rmsprop(), #alternative "adam"
@@ -1016,20 +969,39 @@ model %>%
   )
 
 set_random_seed(10)
-fit.nn.full <- model %>% fit(
+fit.nn.full <- model2 %>% fit(
   data_xtrain,
   data_ytrain,
   epochs = min.epoch,
-  batch_size = 12)
+  batch_size = 8)
 
 fit.nn.full$metrics$loss[min.epoch]
 ```
 
-The MSE of this model is now `r fit.nn.full$metrics$loss[min.epoch]`, slightly lower than the training loss on the original (MSE at epoch 65 = `r fit.nn$metrics$loss[min.epoch]`).
+The MSE of this model is now `r fit.nn.full$metrics$loss[min.epoch]`, slightly larger than the training loss on the original (MSE at epoch 65 = `r fit.nn$metrics$loss[min.epoch]`).
 
-## Bagging
+**ahhh keeps changing and mse going up from mse train!**
+
+## Ensemble
 
 Now we'll attempt to create the best model by bagging those created above.
+
+```{r}
+# average probabilities
+df.yhat <- data.train %>% dplyr::select(VSI) #initialize df to store outputs
+df.yhat$full.lm <- predict(lm.full, data.train) 
+df.yhat$lasso <- predict(fit.1se.lm, data.train) 
+df.yhat$rf <- predict(fit.final.rf, data.train) 
+df.yhat$regsub <- predict(fit1.lm, data.train) 
+nn.list <- model2 %>% predict(data_xtrain) %>% unname()
+df.yhat <- cbind(df.yhat, as.data.frame(nn.list))
+df.yhat <- df.yhat %>%
+  mutate(en.pred = rowMeans(df.yhat[ , c(2:6)], na.rm=TRUE))
+en.train.mse <- mean((df.yhat$VSI - df.yhat$en.pred)^2)
+en.train.mse
+```
+
+Hurrah! Our training MSE from our ensemble method, `r en.train.mse`, is actually pretty good!
 
 # Appendix
 
@@ -1202,7 +1174,7 @@ data.train.test_diff <- data.train.test %>% dplyr::select(-c(contains("_2018") |
 ## Comparing Regsubsets Models
 
 
-```{r}
+```{r, eval=FALSE}
 #stash year and non-numeric variables
 dtt.fac <- data.train %>%
   select(negate(is.numeric))
