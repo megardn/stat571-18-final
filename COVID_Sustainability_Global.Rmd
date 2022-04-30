@@ -897,8 +897,8 @@ data_xtrain <- nn.train %>% dplyr::select(-VSI) %>% as.matrix()
 data_ytrain <- nn.train %>% dplyr::select(VSI) %>% as.matrix()  # find y
 
 # ## validation input/y
-data_xtrain <- nn.val %>% dplyr::select(-VSI) %>% as.matrix()
-data_ytrain <- nn.val %>% dplyr::select(VSI) %>% as.matrix()
+data_xval <- nn.val %>% dplyr::select(-VSI) %>% as.matrix()
+data_yval <- nn.val %>% dplyr::select(VSI) %>% as.matrix()
 ```
 
 Then we build and compile our model: 
@@ -914,7 +914,7 @@ model <- keras_model_sequential() %>%
   layer_dense(units = 32, activation = "relu") %>%
   layer_dropout(0.25) %>% # https://stackoverflow.com/questions/37232782/nan-loss-when-training-regression-network
   layer_dense(units = 12, activation = "relu") %>%  
-  #layer_dropout(0.25) %>% 
+  layer_dropout(0.25) %>% 
   layer_dense(units = 1, activation = "linear") # output = 1 unit for linear(?) regression
 print(model)
 
@@ -935,7 +935,7 @@ fit.nn <- model %>% fit(
   data_xtrain,
   data_ytrain,
   epochs = 150,
-  batch_size = 24,
+  batch_size = 8,
   validation_split = .15 # set 15% of the data_xtrain, data_ytrain as the validation data
 )
 
@@ -957,7 +957,7 @@ model2 <- keras_model_sequential() %>%
   layer_dense(units = 32, activation = "relu") %>%
   layer_dropout(0.25) %>% 
   layer_dense(units = 12, activation = "relu") %>%  
-  #layer_dropout(0.25) %>% 
+  layer_dropout(0.25) %>% 
   layer_dense(units = 1, activation = "linear") # output = 1 unit for linear(?) regression
 print(model2)
 #compile mode
@@ -973,16 +973,35 @@ fit.nn.full <- model2 %>% fit(
   data_xtrain,
   data_ytrain,
   epochs = min.epoch,
-  batch_size = 12)
+  batch_size = 8)
 
 fit.nn.full$metrics$loss[min.epoch]
 ```
 
-The MSE of this model is now `r fit.nn.full$metrics$loss[min.epoch]`, slightly lower than the training loss on the original (MSE at epoch 65 = `r fit.nn$metrics$loss[min.epoch]`).
+The MSE of this model is now `r fit.nn.full$metrics$loss[min.epoch]`, slightly larger than the training loss on the original (MSE at epoch 65 = `r fit.nn$metrics$loss[min.epoch]`).
 
-## Bagging
+**ahhh keeps changing and mse going up from mse train!**
+
+## Ensemble
 
 Now we'll attempt to create the best model by bagging those created above.
+
+```{r}
+# average probabilities
+df.yhat <- data.train %>% dplyr::select(VSI) #initialize df to store outputs
+df.yhat$full.lm <- predict(lm.full, data.train) 
+df.yhat$lasso <- predict(fit.1se.lm, data.train) 
+df.yhat$rf <- predict(fit.final.rf, data.train) 
+df.yhat$regsub <- predict(fit1.lm, data.train) 
+nn.list <- model2 %>% predict(data_xtrain) %>% unname()
+df.yhat <- cbind(df.yhat, as.data.frame(nn.list))
+df.yhat <- df.yhat %>%
+  mutate(en.pred = rowMeans(df.yhat[ , c(2:6)], na.rm=TRUE))
+en.train.mse <- mean((df.yhat$VSI - df.yhat$en.pred)^2)
+en.train.mse
+```
+
+Hurrah! Our training MSE from our ensemble method, `r en.train.mse`, is actually pretty good!
 
 # Appendix
 
