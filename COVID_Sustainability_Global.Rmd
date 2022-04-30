@@ -783,6 +783,7 @@ summary(fit.1se.lm)
 
 LASSO results using the `coef.1se` suggest again that life expectancy is an important predictor of `VSI`. In addition, the LASSO approach selected the 17 year average number of individuals using internet. When feeding these into a linear model, both have a significant effect on `VSI`.  
 
+
 ## Trees & Random Forests
 
 Now, we will try to use tree based methods (single decision tree and random forest) to see if we can predict a country's vaccination success based on social and economic measures prior to the pandemic, as well as COVID case data prior to the start of vaccination campaigns. 
