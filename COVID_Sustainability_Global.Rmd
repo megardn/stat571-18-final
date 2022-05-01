@@ -4,7 +4,7 @@ author:
 - Diego G. Davila
 - Margaret Gardner
 - Joelle Bagautdinova
-date: 'Due before midnight, May 1st'
+date: "Due before midnight, May 1st"
 output:
   html_document:
     code_folding: show
@@ -14,6 +14,9 @@ output:
     toc_depth: 4
     toc_float: yes
     number_sections: yes
+  word_document:
+    toc: yes
+    toc_depth: '4'
   pdf_document:
     toc_depth: '4'
     number_sections: yes
@@ -21,7 +24,7 @@ urlcolor: blue
 ---
 
 ```{r Setup, include=FALSE, warning=FALSE}
-knitr::opts_chunk$set(echo = TRUE, fig.width=8, fig.height=4)
+knitr::opts_chunk$set(echo = FALSE, fig.width=8, fig.height=4, warning=FALSE)
 options(scipen = 0, digits = 3)  # controls base R output
 
 # Package setup
@@ -44,6 +47,7 @@ Given the above, the goals of this project are:
 
 ## Data Description
 To address the goals of our project, we have combined the following data sets to form an array of predictors: 
+
 * The [World Sustainability Dataset](https://www.kaggle.com/datasets/truecue/worldsustainabilitydataset): A data set describing several measures of a nation's social, political, economic, and climate-related characterization. This data set was originally aggregated for the TrueCue Women+Data Hackathon, and was released as publicly available after the event. 
 * The [COVID vaccines](https://www.kaggle.com/datasets/gpreda/covid-world-vaccination-progress): A data set containing several vaccination measures, including cumulative vaccinations, the total number of vaccinated people and the number of vaccine doses administered per individual. The data set is updated daily based on Our World in Data GitHub repository for [covid-19](https://github.com/owid/covid-19-data) but for the purpose of this study, data includes vaccine rates up until March 17, 2022.  
 * [COVID cases](https://www.kaggle.com/datasets/josephassaker/covid19-global-dataset): A dataset containing daily reports of cumulative and new cases and deaths in each country. [Country populations in 2021](https://github.com/owid/covid-19-data/blob/master/scripts/input/un/population_latest.csv) are added to this data set to normalize absolute counts relative to population ("per hundred" variables) in addition to the existing cumulative cases and deaths. 
@@ -56,20 +60,21 @@ The success of a nation's vaccination campaign reflected in many variables, incl
 Our analyses have yielded several useful insights that may help inform global policy decisions as international resources are allocated to help struggling nations increase vaccination success. 
 
 Linear Regression models based on economic factors, disease burden factors, and political factors, as well as data-driven LASSO and Regsubsets models, have converged on the following variables as significantly predictive of vaccination success:
+
 * World Region
-** Policy Recommendation: Aid should focus on increasing vaccinations in struggling regions (i.e. Sub-Saharan Africa)
+  * Policy Recommendation: Aid should focus on increasing vaccinations in struggling regions (i.e. Sub-Saharan Africa)
 * Life Expectancy (Prior to Pandemic)
-** Policy Recommendation: Life expectancy often serves as an indicator of a country's overall medical infrastructure. Medical infrastructure resources should be the focus of aid, more so than economic relief alone. 
+  * Policy Recommendation: Life expectancy often serves as an indicator of a country's overall medical infrastructure. Medical infrastructure resources should be the focus of aid, more so than economic relief alone. 
 * Women in Business and Law
-** Policy Recommendation: Initiatives to promote womens' equality and educational attainment may also have secondary benefits to vaccination and similar public-health campaigns and thus should not be overlooked.
+  * Policy Recommendation: Initiatives to promote womens' equality and educational attainment may also have secondary benefits to vaccination and similar public-health campaigns and thus should not be overlooked.
 * Regime Type
-** Policy Recommendation: Mutual aid relationships should be facilitated between nations of varying regime types.  
+  * Policy Recommendation: Mutual aid relationships should be facilitated between nations of varying regime types.  
 * Number of Internet Users
-** Policy Recommendation: Internet access should be made widely available as part of aid packages. This may help to provide adequate information regarding vaccinations, and help coordinate a nation's vaccination logistics (i.e. online signups and messaging).
+  * Policy Recommendation: Internet access should be made widely available as part of aid packages. This may help to provide adequate information regarding vaccinations, and help coordinate a nation's vaccination logistics (i.e. online signups and messaging).
 * Government Expenditure as Percent GDP
-** Policy Recommendation: Governments that spend more relative to GDP may be preemptively investing more in public health services and infrastructure required for rapid, broad-scale vaccination campaigns. Countries should be willing to invest in the public services that will be necessary in times of crisis. 
+  * Policy Recommendation: Governments that spend more relative to GDP may be preemptively investing more in public health services and infrastructure required for rapid, broad-scale vaccination campaigns. Countries should be willing to invest in the public services that will be necessary in times of crisis. 
 * World Bank Income Class
-** Policy Recommendation: High-Income nations had more successful vaccination campaigns and should provide aid to lower-income countries to reduce global disease burden.
+  * Policy Recommendation: High-Income nations had more successful vaccination campaigns and should provide aid to lower-income countries to reduce global disease burden.
 
 Furthermore, we have developed more robust models that predict VSI with varying degrees of accuracy (Linear Regression & LASSO, Trees & Random Forest, and Artificial Neural Networks). While predictive accuracy was moderate for each model individually, as well as an ensemble model that takes the weighted averages the predictions of all models, we have achieved a level of predictive ability that could help forecast vaccination success in subsequent COVID-19 vaccination campaigns and future pandemics. 
 
@@ -94,6 +99,7 @@ data.raw <- read.csv('data/WorldSustainabilityDataset.csv', header = TRUE)
 ```
 
 There are some missing elements labeled as empty instead of NA. Let's fix this before proceeding.
+
 ```{r}
 data.raw[data.raw == ""] <- NA
 
@@ -253,11 +259,12 @@ ggplot(data = wsd.avg, aes(x = nYears_avg)) +
   ylab("Number of countries") +
   ggtitle("Frequency of countries reporting data for a given number of years")
 ```
+
 This is a limitation that should be kept in mind when interpreting the results of our model and the predictive power of averaged variables in particular, since an averaged GDP for one country might reflect 17 years of data while the averaged GDP of another may only reflect 3 years. A full graphical representation of years reported by country can be found in the Appendix.
 
 Next we'll merge the latest data and averaged data into one wide wsd dataframe and remove any variables that are highly correlated:
 
-```{r fig.width=10, fig.height=10}
+```{r fig.width=27, fig.height=27}
 # one predictor dataframe to rule them all
 wsd.df_list <- list(wsd.latest, wsd.avg) #dfs to merge, ordered purposefully for removing correlated predictors
 wsd.sum.wide <- wsd.df_list %>% reduce(full_join, by='country')
@@ -296,14 +303,14 @@ wsd.list <-  apply(wsd.corr, 2, function(x) any(abs(x) > 0.97)) #list highly cor
 wsd.nocor <- wsd.num[ , !wsd.list]
 #add back factors
 wsd.nocor <- cbind(wsd.fac, wsd.nocor)
-dim(wsd.nocor)
-head(wsd.nocor)
+# dim(wsd.nocor)
+# head(wsd.nocor)
 ```
 
 
 ## COVID Preprocessing
 
-Next, we will read in COVID cases/deaths and vaccination data sets. We remove countries with too many NAs and generate new variables indicating cases and deaths per hundred, to account for the total population in each country.  
+Next, we will read in COVID cases/deaths and vaccination data sets. We remove countries with too many NAs and generate new variables indicating cases and deaths per hundred, to account for the total population in each country.  Finally, we'll merge the case, death, and vaccination info into a single dataframe.
 
 ```{r}
 # load cases data
@@ -440,8 +447,9 @@ df_merged <- df_merged %>%
          )  
 
 # let's look at df_merged
-head(df_merged)
-dim(df_merged)
+# head(df_merged)
+# dim(df_merged)
+
 
 # save merged df (this will be used to merge with the sustainability data)
 write.csv(df_merged, "data/covid_cases_vaccines_clean.csv")
@@ -451,13 +459,14 @@ covid <- df_merged %>% ungroup()
 
 #renaming country levels for compatibility with WSD
 covid$country <- recode_factor(covid$country, "UK"="United Kingdom", "Gambia"="Gambia, The", "Laos"="Lao PDR", "Egypt"="Egypt, Arab Rep.", "South Korea"="Korea, Rep.", "USA"="United States", "Russia"="Russian Federation", "Venezuela"="Venezuela, RB", "Democratic Republic Of The Congo"="DRC")
+skim(covid)
 ```
 
 ## COVID EDA
 
 We will start by visualizing some of the most relevant variables and patterns in the cases, deaths and vaccinations data.
 
-```{r}
+```{r fig.height=8, fig.width=8}
 # total people vaccinated per hundred
 plot_vac_percent <- covid %>%
   ggplot(aes(x = date, y = people_vaccinated_per_hundred, color = country, group = country)) + 
@@ -470,7 +479,7 @@ ggplotly(plot_vac_percent) # generate interactive plot
 ```
 
 
-```{r}
+```{r fig.height=8, fig.width=8}
 # total vaccine doses per hundred
 plot_total_vac <- covid %>%
   ggplot(aes(x = date, y = total_vaccinations_per_hundred, color = country, group = country)) + 
@@ -486,7 +495,7 @@ There is quite a wide range of vaccination rates over time, with some countriesr
 
 Let's bin countries by their latest achieved vaccination rate (per hundred to account for their total populations):
 
-```{r}
+```{r fig.height=10, fig.width=10}
 # select the most recent reported vaccination percent for every country
 box_pct_vac <- covid %>%
   drop_na(people_vaccinated_per_hundred) %>%
@@ -685,7 +694,7 @@ colnames(covid_maxrate)[2:13] <- paste(colnames(covid_maxrate)[2:13], "max", sep
 
 Finally we'll merge these COVID predictors into a single dataframe and remove strongly colinear predictors.
 
-```{r fig.width=10, fig.height=10}
+```{r fig.width=25, fig.height=25}
 #df for cases and deaths
 case.df_list <- list(covid_maxrate, covid_prevac) #ordered to prioritize when removing correlated vars
 covid.predict <- case.df_list %>% reduce(full_join, by='country') %>% as.data.frame() #join
@@ -724,8 +733,8 @@ covid.list <-  apply(covid.corr, 2, function(x) any(abs(x) > 0.97)) #list highly
 covid.nocor <- covid.num[ , !covid.list]
 #add back factors
 covid.nocor <- cbind(covid.fac, covid.nocor)
-dim(covid.nocor)
-head(covid.nocor)
+# dim(covid.nocor)
+# head(covid.nocor)
 ```
 
 
@@ -827,7 +836,7 @@ Next we'll perform PCA to create a score to summarize these important vaccinatio
 ``` {r}
 #drop NAs before PCA
 vac.sum.pca <- vac.sum %>% na.omit()
-nrow(vac.sum.pca)
+#nrow(vac.sum.pca)
 
 vax.pca3 <- prcomp(x = vac.sum.pca[,-1], scale. = TRUE, center = TRUE)
 vax.pca3$rotation
@@ -846,7 +855,7 @@ PC1 explains 73% of the variance and is therefore an excellent index indicating 
 
 Let's see how the VSI loadings are distributed across countries: 
 
-```{r}
+```{r fig.height=12, fig.width=18}
 # numerical summary
 skim(vac.sum.with.VSI)
 # plot sorted VSI scores
@@ -900,7 +909,7 @@ final.df <- inner_join(case.wsd.wide, yval,  by=("country"))
 write.csv(final.df, "data/final.df.csv", row.names = FALSE)
 ```
 
-Upon merging, we are left with data on `n_unique(final.df$country)` unique countries.
+Upon merging, we are left with data on `r n_unique(final.df$country)` unique countries.
 
 # Modeling
 
@@ -948,6 +957,8 @@ In the first approach, we are creating several linear models by selecting variab
 
 ### Thematic linear models
 
+All linear models are compiled using backward selection. Summaries of the intermediate models are ommited for brevity.
+
 #### Economic factors
 
 Using domain knowledge, we explore the relationship between measures capturing the quality of a nation's economy over the last reported 17 years and vaccination success. 
@@ -972,10 +983,10 @@ summary(lm.econ.1)
 
 # remove non-significant variables w backward selection
 lm.econ.1.refined <- update(lm.econ.1, .~. -ExportGoodsServices.GDP_avg)
-summary(lm.econ.1.refined)
+#summary(lm.econ.1.refined)
 
 lm.econ.2.refined <- update(lm.econ.1.refined, .~. -FinalConsumptionExpenditure.GDP_avg)
-summary(lm.econ.2.refined)
+#summary(lm.econ.2.refined)
 
 lm.econ.3.refined <- update(lm.econ.2.refined, .~. -GDP.Current_avg)
 summary(lm.econ.3.refined)
@@ -1002,7 +1013,7 @@ summary(lm.covid.1)
 
 # remove non-significant variables w backward selection
 lm.covid.1.refined <- update(lm.covid.1, .~. -monthly.new.deaths.per.100_max)
-summary(lm.covid.1.refined)
+#summary(lm.covid.1.refined)
 
 lm.covid.2.refined <- update(lm.covid.1.refined, .~. -cumulative_total_deaths_per_hundred_prevac)
 summary(lm.covid.2.refined)
@@ -1124,7 +1135,7 @@ Let's now try a slightly more data-driven approach, i.e. using LASSO to select t
 ```{r}
 # remove all rows containing NAs (LASSO does not work without this step) - lost 9 rows :(
 data.train.sub <- na.omit(data.train)
-nrow(data.train.sub)
+#nrow(data.train.sub)
 
 # create matrices to feed into gmnet
 Y <- as.matrix(data.train.sub[, 61]) # extract Y (VSI)
@@ -1159,7 +1170,7 @@ fit.1se.lm <- lm(VSI~., data = wsd.avg.vsi.lasso)
 summary(fit.1se.lm) 
 ```
 
-LASSO results using the `coef.1se` suggest again that life expectancy is an important predictor of `VSI`. In addition, the LASSO approach selected the 17 year average number of individuals using internet. When feeding these into a linear model, both have a significant effect on `VSI`.  
+LASSO results using the `coef.1se`  on `r nrow(data.train.sub)` complete countries suggest again that life expectancy is an important predictor of `VSI`. In addition, the LASSO approach selected the 17 year average number of individuals using internet. When feeding these into a linear model, both have a significant effect on `VSI`.  
 
 ## Regsubsets
 
@@ -1336,8 +1347,8 @@ fit.nn <- model %>% fit(
 
 plot(fit.nn)
 min.epoch <- which.min(fit.nn$metrics$val_loss)
-fit.nn$metrics$val_loss[min.epoch]
-fit.nn$metrics$loss[min.epoch]
+# fit.nn$metrics$val_loss[min.epoch]
+# fit.nn$metrics$loss[min.epoch]
 ```
 
 The lowest MSE calculated on the internal validation sample (15% of `data.train` that's been cleaned, imputed and normalized for NN input) is `r fit.nn$metrics$val_loss[min.epoch]` at the `r min.epoch`. Now that we've defined our model, we can refit it without the internal validation split and using `r min.epoch` epochs.
@@ -1370,7 +1381,7 @@ fit.nn.full <- model2 %>% fit(
   epochs = min.epoch,
   batch_size = 8)
 
-fit.nn.full$metrics$loss[min.epoch]
+#fit.nn.full$metrics$loss[min.epoch]
 ```
 
 The MSE of this model is now `r fit.nn.full$metrics$loss[min.epoch]`, slightly larger than the training loss on the original (MSE at epoch 65 = `r fit.nn$metrics$loss[min.epoch]`).
@@ -1509,7 +1520,17 @@ We hope that these analyses may be useful in shaping future discussions about th
 
 ## Additional EDA
 
-### COVID
+### WSD
+Detailed graph of the number of years with data reported for each country:
+
+```{r fig.width=10, fig.height=15}
+wsd %>% mutate(country=as.character(country)) %>% 
+  arrange(country) %>%
+  ggplot() + geom_bar(aes(y = country, fill = country)) +
+  theme(legend.position = "none") +
+  ggtitle("Years of data reported for each country") +
+  xlab("Number of years reported")
+```
 
 Plotting change in key predictors over the 17-year data period.
 
@@ -1544,7 +1565,6 @@ ggplot(data.processed[data.processed$WorldRegion=="Central and Southern Asia", ]
   ylab("Urban Population Proportion") + 
   ggtitle("Proportion Urban Population by Year in Central and Southern Asia")
 ```
-
 
 
 ## Unused Dataframes
@@ -1635,16 +1655,6 @@ wsd.change <- merge(wsd.change.num, wsd.change.fac, by ="country") %>%
   dplyr::select(country, ends_with("diff"))
 ```
 
-Detailed graph of the number of years with data reported for each country:
-
-```{r fig.width=10, fig.height=10}
-wsd %>% mutate(country=as.character(country)) %>% 
-  arrange(country) %>%
-  ggplot() + geom_bar(aes(y = country, fill = country)) +
-  theme(legend.position = "none") +
-  ggtitle("Years of data reported for each country") +
-  xlab("Number of years reported")
-```
 
 ### COVID Summary Dataframes
 
