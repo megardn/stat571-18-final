@@ -462,9 +462,10 @@ skim(covid)
 
 We will start by visualizing some of the most relevant variables and patterns in the cases, deaths and vaccinations data.
 
-```{r fig.height=8, fig.width=8}
+```{r fig.height=10, fig.width=10}
 # total people vaccinated per hundred
 plot_vac_percent <- covid %>%
+  drop_na(country, people_vaccinated_per_hundred, date) %>%
   ggplot(aes(x = date, y = people_vaccinated_per_hundred, color = country, group = country)) + 
     geom_line(show.legend = FALSE) + 
     theme_bw() +
@@ -475,9 +476,10 @@ ggplotly(plot_vac_percent) # generate interactive plot
 ```
 
 
-```{r fig.height=8, fig.width=8}
+```{r fig.height=10, fig.width=10}
 # total vaccine doses per hundred
 plot_total_vac <- covid %>%
+  drop_na(country, total_vaccinations_per_hundred, date) %>%
   ggplot(aes(x = date, y = total_vaccinations_per_hundred, color = country, group = country)) + 
     geom_line(show.legend = FALSE) + 
     theme_bw() +
@@ -1436,17 +1438,17 @@ We'll conclude by running our weighted ensemble method on the validation data we
 ```{r}
 set_random_seed(10)
 # average probabilities
-validaiton.df.yhat <- data.val %>% dplyr::select(VSI) #initialize df to store outputs
-validaiton.df.yhat$full.lm <- predict(lm.full, data.val) 
-validaiton.df.yhat$lasso <- predict(fit.1se.lm, data.val) 
-validaiton.df.yhat$rf <- predict(fit.final.rf, data.val) 
-validaiton.df.yhat$regsub <- predict(fit1.lm, data.val) 
+validation.df.yhat <- data.val %>% dplyr::select(VSI) #initialize df to store outputs
+validation.df.yhat$full.lm <- predict(lm.full, data.val) 
+validation.df.yhat$lasso <- predict(fit.1se.lm, data.val) 
+validation.df.yhat$rf <- predict(fit.final.rf, data.val) 
+validation.df.yhat$regsub <- predict(fit1.lm, data.val) 
 nn.list.val <- model2 %>% predict(data_xval) %>% unname()
-validaiton.df.yhat <- cbind(validaiton.df.yhat, as.data.frame(nn.list.val))
-validaiton.df.yhat <- validaiton.df.yhat %>%
-  mutate(weighted.pred = rowWeightedMeans(as.matrix(validaiton.df.yhat[ , c(2:6)]), w=weight.list, na.rm=TRUE))
+validation.df.yhat <- cbind(validation.df.yhat, as.data.frame(nn.list.val))
+validation.df.yhat <- validation.df.yhat %>%
+  mutate(weighted.pred = rowWeightedMeans(as.matrix(validation.df.yhat[ , c(2:6)]), w=weight.list, na.rm=TRUE))
 head(validation.df.yhat)
-weighted.val.mse <- mean((validaiton.df.yhat$VSI - validaiton.df.yhat$weighted.pred)^2)
+weighted.val.mse <- mean((validation.df.yhat$VSI - validation.df.yhat$weighted.pred)^2)
 weighted.val.mse
 ```
 
@@ -1454,9 +1456,9 @@ Unfortunately the MSE from applying our weighted ensemble method to unseen valid
 
 ```{r}
 #find correlation
-val.cor_value <- cor(validaiton.df.yhat$VSI, validaiton.df.yhat$weighted.pred, use = "complete.obs")
+val.cor_value <- cor(validation.df.yhat$VSI, validation.df.yhat$weighted.pred, use = "complete.obs")
 
-plot_validation <- validaiton.df.yhat %>% 
+plot_validation <- validation.df.yhat %>% 
   ggplot(aes(x = VSI, y = weighted.pred)) +
   geom_point(aes(color=VSI), show.legend = FALSE) +
   geom_smooth(method = "lm", color = "grey") +
@@ -1464,7 +1466,7 @@ plot_validation <- validaiton.df.yhat %>%
   ggtitle("Association between VSI predicted by weighted ensemble model \n and observed VSI in unseen data") +
   xlab("VSI") +
   ylab("VSI Predicted by Weighted Average Ensemble") +
-  annotate("text", x = -3, y = max(validaiton.df.yhat["weighted.pred"]) - 0.5, # position
+  annotate("text", x = -3, y = max(validation.df.yhat["weighted.pred"]) - 0.5, # position
            size = 4, # font size
            label = paste0("Correlation: ", sprintf("%.3f", val.cor_value), "\n",
                           "Prediction MSE = ", sprintf("%.3f", weighted.val.mse)))
