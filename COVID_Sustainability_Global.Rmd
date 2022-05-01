@@ -73,20 +73,12 @@ Linear Regression models based on economic factors, disease burden factors, and 
 
 Furthermore, we have developed more robust models that predict VSI with varying degrees of accuracy (Linear Regression & LASSO, Trees & Random Forest, and Artificial Neural Networks). While predictive accuracy was moderate for each model individually, as well as an ensemble model that takes the weighted averages the predictions of all models, we have achieved a level of predictive ability that could help forecast vaccination success in subsequent COVID-19 vaccination campaigns and future pandemics. 
 
-## Conclusion
+## Conclusion & Limitations
 
 We have developed a robust vaccination index capturing a country's past vaccination success and our models highlighted several political, economic, social and health-related factors that have a crucial influence on a country's ability to vaccinate its populace. However, this analysis comes with certain limitations. First, the dataset is constrained to countries for which a sufficient amount of data was present to compute both VSI and summary political, economic, social and health-related factors. While this was possible for a substantial number of countries (n = 99), some countries had to be dropped (n = 126 from the vaccination data, n = 42 from the world sustainability data) including large countries such as China, which did not sufficiently report on vaccination data. By obtaining more complete information, future studies may further improve the completeness of this dataset and thereby increase the accuracy of VSI predictions. Moreover, in addition to the factors found to influence VSI in this study, it is likely that other factors influence a country's vaccination success, including more psychosocial and individual characteristics related to beliefs around vaccinations; however, it's likely that some of these latent factors may be captured in our data as they relate to educational attainment, regime type, and life expectancy when interpreted as a broad indicator of a country's healthcare and social safety net. 
 
 In conclusion, we were able to quantitatively define the success of each country's vaccination campaign against COVID-19 and to identify key, modifiable factors that may contribute. While the modest predictive ability of our final model on unseen data is one of several limitations to consider in this work, 
 the COVID-19 crisis has presented a multifaceted and evolving challenge to governments across the globe. Therefore, our analysis represents an important contribution to objectively assessing each country's response and identifying factors that should be considered in addressing future global health crises.
-
-## Conclusion
-
-We have developed a robust vaccination index capturing a country's past vaccination success and our models highlighted several political, economic, social and health-related factors that have a crucial influence on a country's ability to vaccinate its populace. However, this analysis comes with certain limitations. First, the dataset is constrained to countries for which a sufficient amount of data was present to compute both VSI and summary political, economic, social and health-related factors. While this was possible for a substantial number of countries (n = 99), some countries had to be dropped (n = 126 from the vaccination data, n = 42 from the world sustainability data) including countries such as China, which did not sufficiently report on vaccination data but would be a very important country to include. By obtaining more complete information, future studies may further improve the completeness of this dataset and thereby increase the accuracy of VSI predictions. Moreover, in addition to the factors found to influence VSI in this study, it is likely that other factors influence a country's vaccination success, including more psychosocial and individual characteristics related to beliefs around vaccinations. 
-
-In conclusion, **out of inspiration rn, would be nice to have a little conclusion sentence here**
-
-
 
 # Data Preprocessing
 
@@ -1183,7 +1175,7 @@ Reducing to only significantly predictive variables, we find they are fairly sim
 
 Now, we will try to use tree based methods (single decision tree and random forest) to see if we can predict a country's vaccination success based on social and economic measures prior to the pandemic, as well as COVID case data prior to the start of vaccination campaigns. 
 
-First, we will try using a single regression tree. 
+First, we will create a regression tree. 
 
 ```{r, fig.height=8, fig.width=17}
 single.tree1 <- tree(VSI ~ ., data.train.sub, control=tree.control(nobs=nrow(data.train.sub),
