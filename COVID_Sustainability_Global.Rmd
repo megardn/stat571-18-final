@@ -299,7 +299,7 @@ save(covid, file = "data/covid_cases_vaccines_clean.Rda")
 
 To start, we'll try several different methods of summarizing the longitudinal WSD data into a single "timepoint". We selected the latest data reported for each country (restricted to 2016 or later) and calculated: the average of each parameter over time (2001 to 2018); the average of the last 3 years of data (2016-2018); and the relative and absolute change in each parameter over time (2001-2018). In order to maximize completeness and recency of the dataset while minimizing colinearity, we decided to use each country's latest data and data averaged over 17 years in our models below *question - except nns?*. Code for each unused summary dataframe can be found in the appendix.
 
-Load outputs from EDA:
+Load outputs from data cleaning:
 
 ```{r load.dfs}
 load("data/WorldSustainabilityData_Processed.Rda")
@@ -325,11 +325,6 @@ wsd$country <- recode_factor(wsd$country,  "Iran, Islamic Rep."="Iran", "Bosnia 
 ```
 
 
-# WSD EDA & Summary Values
-
-To start, we'll try several different methods of summarizing the longitudinal WSD data into a single "timepoint". We selected the latest data reported for each country (restricted to 2016 or later) and calculated: the average of each parameter over time (2001 to 2018); the average of the last 3 years of data (2016-2018); and the relative and absolute change in each parameter over time (2001-2018). In order to maximize completeness and recency of the dataset while minimizing colinearity, we decided to use each country's latest data and data averaged over 17 years in our models below. Code for each unused summary dataframe can be found in the appendix.
-
-
 ```{r}
 # latest data for each country, restricted to 2016 or later
 wsd.latest <- wsd %>% arrange(Year) %>%
@@ -344,9 +339,11 @@ table(as.factor(wsd.latest$Year_latest)) # see yr frequencies
 As seen below, there is a great deal of variability in how many years each country has data reported in the WSD dataset:
 
 ```{r fig.width=10, fig.height=10}
-wsd %>% mutate(country=as.character(country)) %>% 
-  arrange(country) %>%
-  ggplot() + geom_bar(aes(y = country, fill = country)) +
+wsd %>% mutate(country = as.character(country)) %>% 
+  group_by(country) %>%
+  mutate(n_years = n()) %>%
+  arrange(n_years) %>%
+  ggplot() + geom_bar(aes(y = forcats::fct_reorder(country, -n_years), fill = country)) +
   theme(legend.position = "none") +
   ggtitle("Years of data reported for each country") +
   xlab("Number of years reported")
@@ -443,9 +440,154 @@ head(wsd.nocor)
 
 # COVID EDA & Summary Values
 
+## EDA
+
+We will start by visualizing some of the most relevant variables and patterns in the cases, deaths and vaccinations data.
+
+```{r}
+# total people vaccinated per hundred
+plot_vac_percent <- covid %>%
+  ggplot(aes(x = date, y = people_vaccinated_per_hundred, color = country, group = country)) + 
+    geom_line(show.legend = FALSE) + 
+    theme_bw() +
+    ggtitle("People vaccinated with respect to the country's total population (%)") +
+    theme(legend.position="bottom")
+
+ggplotly(plot_vac_percent) # generate interactive plot
+```
+
+
+```{r}
+# total vaccine doses per hundred
+plot_total_vac <- covid %>%
+  ggplot(aes(x = date, y = total_vaccinations_per_hundred, color = country, group = country)) + 
+    geom_line(show.legend = FALSE) + 
+    theme_bw() +
+    ggtitle("Total number of vaccine doses administered per 100 people in the total population (%)") +
+    theme(legend.position="bottom")
+
+ggplotly(plot_total_vac) # generate interactive plot
+```
+
+There is quite a wide range of vaccination rates over time, with some countriesreaching high levels of vaccination at a very fast rate such as Gibraltar and Cuba, some countries showing more progressively increasing rates (e.g., European countries) and some countries having low vaccination rates up until today. 
+
+Let's bin countries by their latest achieved vaccination rate (per hundred to account for their total populations):
+
+```{r}
+# select the most recent reported vaccination percent for every country
+box_pct_vac <- covid %>%
+  drop_na(people_vaccinated_per_hundred) %>%
+  group_by(month, year, country) %>%
+  filter(date == min(date)) %>% # select first available value of each month
+  group_by(country) %>%
+  filter(date == max(date)) %>%
+  ggplot(aes(x = forcats::fct_reorder(binned_people_vaccinated_per_hundred, -people_vaccinated_per_hundred, .fun = median), y = people_vaccinated_per_hundred, 
+             group = binned_people_vaccinated_per_hundred, fill = binned_people_vaccinated_per_hundred, color = binned_people_vaccinated_per_hundred)) +
+  geom_boxplot(alpha = 0.5) +
+  geom_jitter(aes(text=sprintf("Country: %s<br> Rate: %s", country, people_vaccinated_per_hundred))) +
+  labs(title = "Countries binned by their current vaccination rate",
+       x = "Current vaccination rates (March 2022)",
+       y = "Percent people vaccinated per 100 in total population",
+       color = "",
+       fill = "") +
+  theme_bw()
+
+ggplotly(box_pct_vac, tooltip = "text")
+
+```
+
+As we can see, vaccination rates are currently sill very variables across the world. 
+
+Let's now pick a few countries to examine the evolution of the number of cases with respect to important vaccination milestones, such as: 
+
+* vaccination start
+* having 30% of the population vaccinated
+* having 50% of the population vaccinated
+* having 70% of the population vaccinated
+* having 90% of the population vaccinated
+
+Keep in mind that some countries have not yet reached some of these milestones as of today and therefore, a different number of milestones may be present for each country represented below. 
+
+```{r}
+# filter some countries
+vac_events_sub <- covid %>%
+  filter(country %in% c("USA", "Brazil", "Cuba", "Italy", "France", "Germany", "Japan", "India", "Australia", "South Africa", "Egypt", "Sudan")) 
+
+# create vaccination start df
+vac_start_df <- vac_events_sub %>%
+  select(country, date, vaccination_events) %>%
+  filter(vaccination_events == "vac_start")
+
+# create vaccination 30% df
+vac_30_df <- vac_events_sub %>%
+  select(country, date, vaccination_events) %>%
+  filter(vaccination_events == "vac_30pct")
+
+# create vaccination 30% df
+vac_50_df <- vac_events_sub %>%
+  select(country, date, vaccination_events) %>%
+  filter(vaccination_events == "vac_50pct")
+
+# create vaccination 30% df
+vac_70_df <- vac_events_sub %>%
+  select(country, date, vaccination_events) %>%
+  filter(vaccination_events == "vac_70pct")
+
+# create vaccination 30% df
+vac_90_df <- vac_events_sub %>%
+  select(country, date, vaccination_events) %>%
+  filter(vaccination_events == "vac_90pct")
+
+
+# daily cases with weekly average number of new cases
+plot_cases_weekly <- vac_events_sub %>%
+  ggplot() + 
+    geom_histogram(aes(x = date, y = daily_new_cases, color = country, group = country, fill = country), 
+                   stat = "identity", alpha = 0.5, binwidth = 0.1) +
+    geom_line(aes(x = date, y = weekly_new_cases), color = "darkblue", show.legend = FALSE) + 
+    facet_wrap(~country) +
+    # this will generate some warnings when not all countries have all milestones, nothing to worry about
+    geom_vline(data = vac_start_df, aes(xintercept = as.numeric(date), text = sprintf("Start date: %s", date)), linetype = 2, color = "black") +
+    geom_vline(data = vac_30_df, aes(xintercept = as.numeric(date), text = sprintf("30 pct vaccinated: %s", date)), linetype = 2, color = "grey40") +
+    geom_vline(data = vac_50_df, aes(xintercept = as.numeric(date), text = sprintf("50 pct vaccinated: %s", date)), linetype = 2, color = "grey50") +
+    geom_vline(data = vac_70_df, aes(xintercept = as.numeric(date), text = sprintf("70 pct vaccinated: %s", date)), linetype = 2, color = "grey60") +
+    geom_vline(data = vac_90_df, aes(xintercept = as.numeric(date), text = sprintf("90 pct vaccinated: %s", date)), linetype = 2, color = "grey70") +
+    # geom_text(data = vac_start_df, aes(x = as.Date(date), y = 750000, label = date)) + # add static event labels
+    theme_bw() +
+    ggtitle("Worldwide daily new cases and vaccination milestones") +
+    theme(legend.position="bottom", axis.text.x = element_text(angle = 45, vjust = 0.5, hjust = 1))
+
+ggplotly(plot_cases_weekly, tooltip = "text")
+
+# and the number of new deaths?
+plot_deaths_weekly <- vac_events_sub %>%
+  ggplot() + 
+    geom_histogram(aes(x = date, y = daily_new_deaths, color = country, group = country, fill = country), 
+                   stat = "identity", alpha = 0.5, binwidth = 0.1) +
+    geom_line(aes(x = date, y = weekly_new_deaths), color = "darkblue", show.legend = FALSE) + 
+    facet_wrap(~country) +
+  # this will generate some warnings when not all countries have all milestones, nothing to worry about
+    geom_vline(data = vac_start_df, aes(xintercept = as.numeric(date), text = sprintf("Start date: %s", date)), linetype = 2, color = "black") +
+    geom_vline(data = vac_30_df, aes(xintercept = as.numeric(date), text = sprintf("30 pct vaccinated: %s", date)), linetype = 2, color = "grey40") +
+    geom_vline(data = vac_50_df, aes(xintercept = as.numeric(date), text = sprintf("50 pct vaccinated: %s", date)), linetype = 2, color = "grey50") +
+    geom_vline(data = vac_70_df, aes(xintercept = as.numeric(date), text = sprintf("70 pct vaccinated: %s", date)), linetype = 2, color = "grey60") +
+    geom_vline(data = vac_90_df, aes(xintercept = as.numeric(date), text = sprintf("90 pct vaccinated: %s", date)), linetype = 2, color = "grey70") +
+    # geom_text(data = vac_start_df, aes(x = as.Date(date), y = 750000, label = date)) + # add static event labels
+    theme_bw() +
+    ggtitle("Worldwide daily new deaths and vaccination milestones") +
+    theme(legend.position="bottom", axis.text.x = element_text(angle = 45))
+
+ggplotly(plot_deaths_weekly, tooltip = "text")
+
+```
+
+Based on the plots above, we can see that countries had variable vaccination start dates and that each has reach a different number of vaccination milestones. For instance, Cuba started vaccinating relatively late (May 2021) but had 90% of its population vaccinated by January 2022. In the US, vaccinations started in December 2020 and have reached a rate of 70% in December 2021. It is unclear from these graphs whether vaccinations have direct consequences on the number of cases and/or deaths.  
+
+## Summary measures
+
 In order to come up with meaningful summary predictors and dependent variables that are compatible with our WSD, we'll next summaries our data on covid cases, deaths, and vaccinations. For our purposes in this project, we'll treat cases and deaths prior to each country's vaccine roll-out as independent variables (predictors) alongside the WSD. Vaccination data will be synthesized using PCA to create a the Vaccination Success Index (VSI), a composite score which we will use to indicate how well a country was able to vaccinate its citizens. 
 
-First, we create a dataframe with the latest COVID data from each country. Every country has some data from March 17, 2022, though some countries' last reported vaccination data was from as early as `unname(summary(last.timepoint$date.vac_last)[1])`.
+First, we create a dataframe with the latest COVID data from each country. Every country has some data from March 17, 2022, though some countries' last reported vaccination data was from as early as `r unname(summary(last.timepoint$date.vac_last)[1])`.
 
 ```{r, warning=FALSE}
 #last day with data for each country
