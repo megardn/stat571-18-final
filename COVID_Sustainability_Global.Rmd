@@ -92,16 +92,12 @@ Before starting to do more involved EDA, we will preprocess our data to ensure w
 
 ## WSD Preprocessing
 
-First, we will begin to process the World Sustainability Dataset. 
+First, we process the World Sustainability Dataset. This dataset contains several missing elements labelled as empty instead of NA. Out first step is to replace these. Next, we remove columns that have less than 90% complete rate, and remove rows with NAs in these remaining columns.
 
 ```{r}
-data.raw <- read.csv('data/WorldSustainabilityDataset.csv', header = TRUE)
-```
+data.raw <- read.csv('data/WorldSustainabilityDataset.csv', header = TRUE) # read int he raw data
 
-There are some missing elements labeled as empty instead of NA. Let's fix this before proceeding.
-
-```{r}
-data.raw[data.raw == ""] <- NA
+data.raw[data.raw == ""] <- NA # replace empty with NAs
 
 #There are quite a few NAs. Let's get fields have at least a 90% complete rate. 
 data.90 <- data.raw[, apply(data.raw, 2, function(col)sum(is.na(col))/length(col)) < 0.10]
@@ -111,7 +107,7 @@ data.processed <- na.omit(data.90)
 n.countries <- length(unique(data.processed$Country.Name))
 ```
 
-After cleaning, we are left with `n.countries` countries, which is a workable amount. 
+After cleaning, we are left with `r n.countries` countries, which is a workable amount. Next, we rename some columns to make them readable, turn strings into factors where appropriate, and export our processed data to "WorldSustainabilityData_Processed.csv". 
 
 ```{r}
 #Ok good, now let's rename some of our variables to be easier to read and work with
@@ -1214,22 +1210,11 @@ Anova(fit1.lm.3.refined)
 Reducing to only significantly predictive variables, we find they are fairly similar to those identified by our full linear model. This is reassuring to have our data-driven model identify similar predictors to our hypothesis-driven models. 
 
 
-# Trees & Random Forests
+# Random Forest
 
-Now, we will try to use tree based methods (single decision tree and random forest) to see if we can predict a country's vaccination success based on social and economic measures prior to the pandemic, as well as COVID case data prior to the start of vaccination campaigns. 
+Now, we will try to use tree based methods, specifically Random Forest, to see if we can predict a country's vaccination success based on social and economic measures prior to the pandemic, as well as COVID case data prior to the start of vaccination campaigns. 
 
-First, we will create a regression tree. 
-
-```{r, fig.height=8, fig.width=17}
-single.tree1 <- tree(VSI ~ ., data.train.sub, control=tree.control(nobs=nrow(data.train.sub),
-                                              minsize=4,     
-                                              mindev=0.009))
-plot(single.tree1)
-text(single.tree1, pretty = 1)
-title("Single Tree | VSI Prediction")
-```
-
-While an advantage of using a single tree is that we can see which variables are diving our prediction, namely, the leaves on our branching tree seen above, Random Forest may provide better results at the cost of interpretability. Accordingly, now we will tune and train a Random Forest model. 
+While an advantage of using a single tree is that we can see which variables are diving our prediction, Random Forest may provide better results at the cost of interpretability. Accordingly, now we will tune and train a Random Forest model. For those interested, an example of a single regression tree can be found in the Appendix under `Regression Tree`. 
 
 Let us tune the parameters mtry (number of variables to sample) and ntree (number of trees to use). First, we will tune ntree. 
 
@@ -1239,6 +1224,7 @@ fit.1.rf <- randomForest(VSI~., data.train.sub, mtry=6, ntree=500)
 plot(fit.1.rf$mse, xlab="Number of Trees", col="red", ylab="OOB MSE") 
 title(main = "OOB Test Error by Number of Trees Used")
 ```
+
 Based on out of bag error, it seems that 100 trees is sufficient. Now, let's tune mtry. 
 
 ```{r, warning=FALSE}
@@ -1264,8 +1250,7 @@ fit.final.rf <- randomForest(VSI~., data.train.sub, mtry=30, ntree=100)
 plot(fit.final.rf)
 ```
 
-The final Random Forest model, now that it's been tuned, is performing with an Out-Of-Bag Testing error of `fit.final.rf$mse[100]`. While our final testing error is still somewhat high, Random Forest can achieve a somewhat accurate estimate of a nation's COVID vaccination success, given social and economic factors prior to the pandemic, and COVID case data prior to the start of vaccination campaigns. 
-
+The final Random Forest model, now that it's been tuned, is performing with an Out-Of-Bag Testing error of `r fit.final.rf$mse[100]`. While our final testing error is still somewhat high, Random Forest can achieve a somewhat accurate estimate of a nation's COVID vaccination success, given social and economic factors prior to the pandemic, and COVID case data prior to the start of vaccination campaigns. 
 
 
 # Neural Networks
@@ -1568,7 +1553,7 @@ ggplot(data.processed[data.processed$WorldRegion=="Central and Southern Asia", ]
 
 
 ## Unused Dataframes
-Stuff that we output but wasn't used for modeling - may be useful for EDA or post-hoc analyses:
+Below is code to generate dataframes that where in the end not used for modeling - may be useful for EDA or post-hoc analyses:
 
 ### WSD Summary Dataframes
 
@@ -1830,7 +1815,7 @@ fit2.lm.comp <- update(fit2.lm, .~., data=na.omit(data.train))
 anova(fit1.lm.comp, fit2.lm.comp)
 ```
 
-Code initially used to identify discrepancies in country names between COVID and WSD dataframes, no longer fits in flow of document. 
+Code initially used to identify discrepancies in country names between COVID and WSD dataframes. 
 
 ```{r, eval=FALSE}
 #some discrepancy in how countries are named, gonna fix that before proceeding
@@ -1841,5 +1826,17 @@ covid.country <- levels(covid$country)
 
 covid$country <- recode_factor(covid$country, "UK"="United Kingdom", "Gambia"="Gambia, The", "Laos"="Lao PDR", "Egypt"="Egypt, Arab Rep.", "South Korea"="Korea, Rep.", "USA"="United States", "Russia"="Russian Federation", "Venezuela"="Venezuela, RB", "Democratic Republic Of The Congo"="DRC")
 wsd$country <- recode_factor(wsd$country,  "Iran, Islamic Rep."="Iran", "Bosnia and Herzegovina"="Bosnia And Herzegovina", "Cote d'Ivoire"="Cote D Ivoire", "Guinea-Bissau"="Guinea Bissau", "Kyrgyz Republic"="Kyrgyzstan", "North Macedonia"="Macedonia", "Eswatini"="Swaziland", "Vietnam"="Viet Nam", "Timor-Leste"="Timor Leste", "Slovak Republic"="Slovakia", "Congo, Rep."="Congo", "Congo, Dem. Rep."="DRC")
+```
+
+## Regression Tree
+
+Single Regression Tree to Predict VSI. Created for illustrative purposes. 
+```{r, fig.height=8, fig.width=17}
+single.tree1 <- tree(VSI ~ ., data.train.sub, control=tree.control(nobs=nrow(data.train.sub),
+                                              minsize=4,     
+                                              mindev=0.009))
+plot(single.tree1)
+text(single.tree1, pretty = 1)
+title("Single Tree | VSI Regression")
 ```
 
