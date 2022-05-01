@@ -24,7 +24,7 @@ urlcolor: blue
 ---
 
 ```{r Setup, include=FALSE, warning=FALSE}
-knitr::opts_chunk$set(echo = FALSE, fig.width=8, fig.height=4, warning=FALSE)
+knitr::opts_chunk$set(echo = FALSE, fig.width=6, fig.height=3, warning=FALSE)
 options(scipen = 0, digits = 3)  # controls base R output
 
 # Package setup
@@ -51,7 +51,6 @@ To address the goals of our project, we have combined the following data sets to
 * The [World Sustainability Dataset](https://www.kaggle.com/datasets/truecue/worldsustainabilitydataset): A data set describing several measures of a nation's social, political, economic, and climate-related characterization. This data set was originally aggregated for the TrueCue Women+Data Hackathon, and was released as publicly available after the event. 
 * The [COVID vaccines](https://www.kaggle.com/datasets/gpreda/covid-world-vaccination-progress): A data set containing several vaccination measures, including cumulative vaccinations, the total number of vaccinated people and the number of vaccine doses administered per individual. The data set is updated daily based on Our World in Data GitHub repository for [covid-19](https://github.com/owid/covid-19-data) but for the purpose of this study, data includes vaccine rates up until March 17, 2022.  
 * [COVID cases](https://www.kaggle.com/datasets/josephassaker/covid19-global-dataset): A dataset containing daily reports of cumulative and new cases and deaths in each country. [Country populations in 2021](https://github.com/owid/covid-19-data/blob/master/scripts/input/un/population_latest.csv) are added to this data set to normalize absolute counts relative to population ("per hundred" variables) in addition to the existing cumulative cases and deaths. 
-
 
 ### Vaccination Success Index 
 The success of a nation's vaccination campaign reflected in many variables, including number of vaccinated, days to vaccinating percentages of the population, and daily vaccinations. Describing, quantifying, and predicting such a multifaceted concept can be a challenge. To address this, we have developed a quantified measure of vaccination success that takes into account several such factors pertaining to national vaccination campaigns. We have termed this measure the Vaccination Success Index (VSI). Demonstrated in more detail further, the VSI was developed by applying Principal Component Analysis (PCA) to various measures of world nations' vaccination campaigns. VSI serves as our primary outcome measure. 
@@ -90,9 +89,9 @@ the COVID-19 crisis has presented a multifaceted and evolving challenge to gover
 
 Before starting to do more involved EDA, we will preprocess our data to ensure we have workable datasets to begin our exploration with. At the completion of preprocessing, we will have two longitudinal dataframes: one containing WSD predictors and one containing COVID case, death, and vaccination data. These dataframes will subsequently be summarized to capture the most important features of each variable by country, enabling us to merge the dataframes and model on these synthesized per-country metrics.
 
-## WSD Preprocessing
+## WSD Preprocessing & EDA
 
-First, we process the World Sustainability Dataset. This dataset contains several missing elements labelled as empty instead of NA. Out first step is to replace these. Next, we remove columns that have less than 90% complete rate, and remove rows with NAs in these remaining columns.
+First, we process the World Sustainability Dataset, cleaning missing elements, removing columns that have less than 90% complete rate, and removing rows with NAs in these remaining columns.
 
 ```{r}
 data.raw <- read.csv('data/WorldSustainabilityDataset.csv', header = TRUE) # read int he raw data
@@ -157,12 +156,9 @@ wsd <- data.processed %>% dplyr::select(1:2,"Continent", "WorldRegion", 3:21,23:
 wsd$country <- recode_factor(wsd$country,  "Iran, Islamic Rep."="Iran", "Bosnia and Herzegovina"="Bosnia And Herzegovina", "Cote d'Ivoire"="Cote D Ivoire", "Guinea-Bissau"="Guinea Bissau", "Kyrgyz Republic"="Kyrgyzstan", "North Macedonia"="Macedonia", "Eswatini"="Swaziland", "Vietnam"="Viet Nam", "Timor-Leste"="Timor Leste", "Slovak Republic"="Slovakia", "Congo, Rep."="Congo", "Congo, Dem. Rep."="DRC")
 ```
 
-
-## WSD EDA
-
 We'll do some exploratory plotting for a few key predictors across all years of reported data. 
 
-```{r, fig.width=15, fig.height=6}
+```{r, fig.width=8, fig.height=4}
 # Frequency of Regime Types in our data
 ggplot(data.processed, aes(x=fct_infreq(RegimeType), fill=fct_infreq(RegimeType))) +
   geom_bar(show.legend = FALSE) +
@@ -200,7 +196,6 @@ Next, we'll try several different methods of summarizing this longitudinal WSD d
 
 First we extract just the last year of reported data for each country, restricted to 2016 or later. As seen below, the majority of countries have 2018 data, though we are able to preserve an additional 23 countries by reaching back to 2016 data. 
 
-
 ```{r}
 # latest data for each country, restricted to 2016 or later
 wsd.latest <- wsd %>% arrange(Year) %>%
@@ -214,7 +209,7 @@ table(as.factor(wsd.latest$Year_latest)) # see yr frequencies
 
 As seen below, there is a great deal of variability in how many years each country has data reported in the WSD dataset:
 
-```{r}
+```{r, fig.width=6, fig.height=3}
 # averages for numeric
 wsd.avg.num <- wsd %>% arrange(Year) %>%
   group_by(country) %>%
@@ -247,7 +242,7 @@ colnames(wsd.avg.fac)[2:4] <- paste(colnames(wsd.avg.fac)[2:4], "avg", sep = "_"
 # #looks good!
 
 wsd.avg <- merge(wsd.avg.fac, wsd.avg.num, by="country") #rejoin num and fac
-table(as.factor(wsd.avg$nYears_avg)) # see yr frequencies
+#table(as.factor(wsd.avg$nYears_avg)) # see yr frequencies
 ggplot(data = wsd.avg, aes(x = nYears_avg)) +
   geom_bar(fill ="seagreen", color = "seagreen") + 
   theme_bw() +
@@ -258,31 +253,18 @@ ggplot(data = wsd.avg, aes(x = nYears_avg)) +
 
 This is a limitation that should be kept in mind when interpreting the results of our model and the predictive power of averaged variables in particular, since an averaged GDP for one country might reflect 17 years of data while the averaged GDP of another may only reflect 3 years. A full graphical representation of years reported by country can be found in the Appendix.
 
-Next we'll merge the latest data and averaged data into one wide wsd dataframe and remove any variables that are highly correlated:
+Next we'll merge the latest data and averaged data into one wide WSD dataframe and remove any variables that are highly correlated. Plots displaying the correlations between the original WSD variables are displayed in the Appendix.
 
-```{r fig.width=27, fig.height=27}
+```{r}
 # one predictor dataframe to rule them all
 wsd.df_list <- list(wsd.latest, wsd.avg) #dfs to merge, ordered purposefully for removing correlated predictors
 wsd.sum.wide <- wsd.df_list %>% reduce(full_join, by='country')
-head(wsd.sum.wide)
+#head(wsd.sum.wide)
 
 #removing 1 of each very colinear pair, method from https://statisticsglobe.com/remove-highly-correlated-variables-from-data-frame-r
 #stash year and non-numeric variables
 wsd.fac <- wsd.sum.wide %>%
   select(negate(is.numeric)| "Year_latest", "nYears_avg")
-
-#plot
-# create correlation plot to see whether some variables are highly correlated (not tolerated by lm)
-wsd.sum.wide %>% 
-  select_if(., is.numeric) %>%
-  cor(., use = "pairwise.complete.obs") %>%
-  corrplot(method = "color", 
-           type = "upper", order = "hclust", 
-           addCoef.col = "black", # Add coefficient of correlation
-           tl.col="black", tl.srt = 45, #Text label color and rotation
-           # hide correlation coefficient on the principal diagonal
-           diag = FALSE 
-           )
 
 #get colinearities  
 wsd.num <- wsd.sum.wide %>% 
@@ -303,8 +285,7 @@ wsd.nocor <- cbind(wsd.fac, wsd.nocor)
 # head(wsd.nocor)
 ```
 
-
-## COVID Preprocessing
+## COVID Preprocessing & EDA
 
 Next, we will read in COVID cases/deaths and vaccination data sets. We remove countries with too many NAs and generate new variables indicating cases and deaths per hundred, to account for the total population in each country.  Finally, we'll merge the case, death, and vaccination info into a single dataframe.
 
@@ -321,7 +302,6 @@ df_cases <- df_cases %>%
          week = as.factor(lubridate::week(date)))
 
 df_cases$month <- month.abb[df_cases$month_num] # convert to month names
-head(df_cases)
 
 #load and merge in population data
 df_pop <- read.csv("data/pop_2021.csv")
@@ -427,10 +407,10 @@ bins_df <- df_vac_nona_clean %>%
 # merge with main
 df_merged <- merge(df_merged, bins_df, by = c("country"), all.x = TRUE)
 
-# checking that there are no countries with more than 10% vaccinated at their vac_start mark
-df_merged %>%
-  filter(vaccination_events == "vac_start" & people_vaccinated_per_hundred > 10) %>%
-  select(country, vaccination_events, people_vaccinated_per_hundred)
+# # checking that there are no countries with more than 10% vaccinated at their vac_start mark
+# df_merged %>%
+#   filter(vaccination_events == "vac_start" & people_vaccinated_per_hundred > 10) %>%
+#   select(country, vaccination_events, people_vaccinated_per_hundred)
 
 # find dates corresponding to important vaccination milestones
 df_merged <- df_merged %>%
@@ -455,45 +435,12 @@ covid <- df_merged %>% ungroup()
 
 #renaming country levels for compatibility with WSD
 covid$country <- recode_factor(covid$country, "UK"="United Kingdom", "Gambia"="Gambia, The", "Laos"="Lao PDR", "Egypt"="Egypt, Arab Rep.", "South Korea"="Korea, Rep.", "USA"="United States", "Russia"="Russian Federation", "Venezuela"="Venezuela, RB", "Democratic Republic Of The Congo"="DRC")
-skim(covid)
+#head(covid)
 ```
 
-## COVID EDA
+We will start by visualizing some of the most relevant variables and patterns in the cases, deaths and vaccinations data. Further plots can also be found in the Appendix. To view current vaccination status nationally, we bin countries by their latest achieved vaccination rate (per hundred to account for their total populations):
 
-We will start by visualizing some of the most relevant variables and patterns in the cases, deaths and vaccinations data.
-
-```{r fig.height=10, fig.width=10}
-# total people vaccinated per hundred
-plot_vac_percent <- covid %>%
-  drop_na(country, people_vaccinated_per_hundred, date) %>%
-  ggplot(aes(x = date, y = people_vaccinated_per_hundred, color = country, group = country)) + 
-    geom_line(show.legend = FALSE) + 
-    theme_bw() +
-    ggtitle("People vaccinated with respect to the country's total population (%)") +
-    theme(legend.position="bottom")
-
-ggplotly(plot_vac_percent) # generate interactive plot
-```
-
-
-```{r fig.height=10, fig.width=10}
-# total vaccine doses per hundred
-plot_total_vac <- covid %>%
-  drop_na(country, total_vaccinations_per_hundred, date) %>%
-  ggplot(aes(x = date, y = total_vaccinations_per_hundred, color = country, group = country)) + 
-    geom_line(show.legend = FALSE) + 
-    theme_bw() +
-    ggtitle("Total number of vaccine doses administered per 100 people in the total population (%)") +
-    theme(legend.position="bottom")
-
-ggplotly(plot_total_vac) # generate interactive plot
-```
-
-There is quite a wide range of vaccination rates over time, with some countriesreaching high levels of vaccination at a very fast rate such as Gibraltar and Cuba, some countries showing more progressively increasing rates (e.g., European countries) and some countries having low vaccination rates up until today. 
-
-Let's bin countries by their latest achieved vaccination rate (per hundred to account for their total populations):
-
-```{r fig.height=10, fig.width=10}
+```{r fig.height=5, fig.width=9}
 # select the most recent reported vaccination percent for every country
 box_pct_vac <- covid %>%
   drop_na(people_vaccinated_per_hundred) %>%
@@ -518,15 +465,7 @@ ggplotly(box_pct_vac, tooltip = "text")
 
 As we can see, vaccination rates are currently sill very variables across the world. 
 
-Let's now pick a few countries to examine the evolution of the number of cases with respect to important vaccination milestones, such as: 
-
-* vaccination start
-* having 30% of the population vaccinated
-* having 50% of the population vaccinated
-* having 70% of the population vaccinated
-* having 90% of the population vaccinated
-
-Keep in mind that some countries have not yet reached some of these milestones as of today and therefore, a different number of milestones may be present for each country represented below. 
+Let's now pick a few countries to examine the evolution of the number of cases with respect to important vaccination milestones, such as when vaccination start and when progressively greater percentages of the population have been vaccinated. Keep in mind that some countries have not yet reached some of these milestones as of today and therefore, a different number of milestones may be present for each country represented below. Plots relating COVID-19 deaths with vaccination  milestones can be found in the Appendix.
 
 ```{r}
 # filter some countries
@@ -578,27 +517,6 @@ plot_cases_weekly <- vac_events_sub %>%
     theme(legend.position="bottom", axis.text.x = element_text(angle = 45, vjust = 0.5, hjust = 1))
 
 ggplotly(plot_cases_weekly, tooltip = "text")
-
-# and the number of new deaths?
-plot_deaths_weekly <- vac_events_sub %>%
-  ggplot() + 
-    geom_histogram(aes(x = date, y = daily_new_deaths, color = country, group = country, fill = country), 
-                   stat = "identity", alpha = 0.5, binwidth = 0.1) +
-    geom_line(aes(x = date, y = weekly_new_deaths), color = "darkblue", show.legend = FALSE) + 
-    facet_wrap(~country) +
-  # this will generate some warnings when not all countries have all milestones, nothing to worry about
-    geom_vline(data = vac_start_df, aes(xintercept = as.numeric(date), text = sprintf("Start date: %s", date)), linetype = 2, color = "black") +
-    geom_vline(data = vac_30_df, aes(xintercept = as.numeric(date), text = sprintf("30 pct vaccinated: %s", date)), linetype = 2, color = "grey40") +
-    geom_vline(data = vac_50_df, aes(xintercept = as.numeric(date), text = sprintf("50 pct vaccinated: %s", date)), linetype = 2, color = "grey50") +
-    geom_vline(data = vac_70_df, aes(xintercept = as.numeric(date), text = sprintf("70 pct vaccinated: %s", date)), linetype = 2, color = "grey60") +
-    geom_vline(data = vac_90_df, aes(xintercept = as.numeric(date), text = sprintf("90 pct vaccinated: %s", date)), linetype = 2, color = "grey70") +
-    # geom_text(data = vac_start_df, aes(x = as.Date(date), y = 750000, label = date)) + # add static event labels
-    theme_bw() +
-    ggtitle("Worldwide daily new deaths and vaccination milestones") +
-    theme(legend.position="bottom", axis.text.x = element_text(angle = 45))
-
-ggplotly(plot_deaths_weekly, tooltip = "text")
-
 ```
 
 Based on the plots above, we can see that countries had variable vaccination start dates and that each has reach a different number of vaccination milestones. For instance, Cuba started vaccinating relatively late (May 2021) but had 90% of its population vaccinated by January 2022. In the US, vaccinations started in December 2020 and have reached a rate of 70% in December 2021. It is unclear from these graphs whether vaccinations have direct consequences on the number of cases and/or deaths.  
@@ -643,13 +561,11 @@ colnames(last.timepoint)[2:43] <- paste(colnames(last.timepoint)[2:43], "last", 
 summary(last.timepoint$date.vac_last)
 ```
 
-Every country has some data from March 17, 2022, though some countries' last reported vaccination data was from as early as `r unname(summary(last.timepoint$date.vac_last)[1])`.
-
-Next, we'll calculate predictors from COVID case and death rates prior to the day each country reported starting to vaccinate. 
+Every country has some data from March 17, 2022, though some countries' last reported vaccination data was from as early as `r unname(summary(last.timepoint$date.vac_last)[1])`.Next, we'll calculate predictors from COVID case and death rates prior to the day each country reported starting to vaccinate. 
 
 ``` {r, warning=FALSE}
 # find the date each country reported starting to vaccinate
-vac_start_df <- covid %>%
+vac_start_df2 <- covid %>%
   dplyr::select(country, date, vaccination_events) %>%
   filter(vaccination_events == "vac_start") %>%
   mutate(days.to.start_rel = as.numeric(difftime(date, min(date), units = "days")),
@@ -657,7 +573,7 @@ vac_start_df <- covid %>%
   rename(date.first.vac = date)
 
 # adding date of first vaccination for each country back to the covid df so it can be used as a cutoff
-vac_start_date <- vac_start_df %>% dplyr::select(country, date.first.vac)
+vac_start_date <- vac_start_df2 %>% dplyr::select(country, date.first.vac)
 covid <- full_join(covid, vac_start_date, by ="country")
 
 # cases & deaths up until vaccines start - USE THIS!
@@ -690,7 +606,7 @@ covid_maxrate <- covid %>%
 colnames(covid_maxrate)[2:13] <- paste(colnames(covid_maxrate)[2:13], "max", sep = "_") #add suffix
 ```
 
-Finally we'll merge these COVID predictors into a single dataframe and remove strongly colinear predictors.
+Finally we'll merge these COVID predictors into a single dataframe and remove strongly colinear predictors. Correlation plots can be found in the Appendix.
 
 ```{r fig.width=25, fig.height=25}
 #df for cases and deaths
@@ -702,19 +618,6 @@ covid.predict <- case.df_list %>% reduce(full_join, by='country') %>% as.data.fr
 #stash year and non-numeric variables (just country)
 covid.fac <- covid.predict %>%
   select(negate(is.numeric))
-
-#plot
-# create correlation plot to see whether some variables are highly correlated (not tolerated by lm)
-covid.predict %>% 
-  select_if(., is.numeric) %>%
-  cor(., use = "pairwise.complete.obs") %>%
-  corrplot(method = "color", 
-           type = "upper", order = "hclust", 
-           addCoef.col = "black", # Add coefficient of correlation
-           tl.col="black", tl.srt = 45, #Text label color and rotation
-           # hide correlation coefficient on the principal diagonal
-           diag = FALSE 
-           )
 
 #get colinearities  
 covid.num <- covid.predict %>% 
@@ -734,7 +637,6 @@ covid.nocor <- cbind(covid.fac, covid.nocor)
 # dim(covid.nocor)
 # head(covid.nocor)
 ```
-
 
 ## Computing Vaccination Success Index
 
@@ -797,12 +699,10 @@ vac_maxrate <- covid %>%
 
 Now let's merge all these vaccination dfs into one dataframe so we can create a VSI to predict!
 
-First we'll dump all the vaccine-related stuff into one big dataframe here:
-
 ``` {r}
-#big df for vaccine info
+#big df for all vaccine info
 last.vac <- last.timepoint %>% dplyr::select("country"| contains("vacc"))#get just vaccine stuff from  last.timepoint
-vac.df_list <- list(vac_1_dose, vac_2_doses, vac_start_df, vac_10_df, vac_rate, vac_maxrate, last.vac)
+vac.df_list <- list(vac_1_dose, vac_2_doses, vac_start_df2, vac_10_df, vac_rate, vac_maxrate, last.vac)
 #drop date and event info since this is contained in col names
 for (i in 1:length(vac.df_list)) {
   vac.df_list[[i]] <- vac.df_list[[i]] %>% dplyr::select(-c(contains("date") | contains("events")))
@@ -812,7 +712,7 @@ vac.dump <- vac.df_list %>% reduce(full_join, by='country') %>% as.data.frame() 
 #skim(vac.dump)
 ```
 
-Now we'll pair it down to keep only key variables that will be meaningful in denoting a country's vaccination success. Variables were selected to be meaningful and non-redundant, and to have high completion rates. 
+After combining the vaccination variables, we'll pair down to keep only key variables that will be meaningful in denoting a country's vaccination success. Variables were selected to be meaningful and non-redundant, and to have high completion rates. 
 
 ```{r}
 vac.sum <- vac.dump %>% dplyr::select(
@@ -826,7 +726,7 @@ vac.sum <- vac.dump %>% dplyr::select(
   people_fully_vaccinated_per_hundred_last # number of people that received the full vaccine (typically 2 doses)
 )
 
-skim(vac.sum)
+names(vac.sum)
 ```
 
 Next we'll perform PCA to create a score to summarize these important vaccination metrics into a continuous rating, the VSI. 
@@ -838,7 +738,7 @@ vac.sum.pca <- vac.sum %>% na.omit()
 
 vax.pca3 <- prcomp(x = vac.sum.pca[,-1], scale. = TRUE, center = TRUE)
 vax.pca3$rotation
-summary(vax.pca3) # PVE of PC1=73.3%
+#summary(vax.pca3) # PVE of PC1=73.3%
 plot(summary(vax.pca3)$importance[2, ],  # PVE
      ylab="PVE",
      xlab="Number of PC's",
@@ -853,9 +753,9 @@ PC1 explains 73% of the variance and is therefore an excellent index indicating 
 
 Let's see how the VSI loadings are distributed across countries: 
 
-```{r fig.height=12, fig.width=18}
+```{r fig.height=8, fig.width=16}
 # numerical summary
-skim(vac.sum.with.VSI)
+#skim(vac.sum.with.VSI)
 # plot sorted VSI scores
 vac.sum.with.VSI %>%
   ggplot(aes(x = reorder(country, VSI), 
@@ -868,7 +768,8 @@ vac.sum.with.VSI %>%
     theme(axis.text.x = element_text(angle = 60, hjust = 1))
 
 #summary(vac.sum.with.VSI$VSI)#VSI range
-
+```
+```{r fig.height=8, fig.width=10}
 # plotting VSI world map using https://cran.r-project.org/web/packages/rworldmap/vignettes/rworldmap.pdf
 sPDF <- joinCountryData2Map(vac.sum.with.VSI, joinCode = "NAME", nameJoinColumn = "country")
 colourPalette <- RColorBrewer::brewer.pal(9, "RdPu") # define colors
@@ -943,7 +844,6 @@ Let's now see how various socioeconomic, sustainability and political factors ma
 * Random forests
 * Neural networks
 
-
 # Linear models
 
 In the first approach, we are creating several linear models by selecting variables based on domain knowledge. Each model is focused on specific themes that may be of importance for predicting a country's `VSI` score. The following themes will be covered: 
@@ -951,7 +851,6 @@ In the first approach, we are creating several linear models by selecting variab
   + "COVID burden" factors, i.e. how heavily a country suffered in terms of number of cases and deaths prior to vaccination start
   + Political and country development factors
   + Full model: we combine the most relevant factors into a comprehensive model
-
 
 ### Thematic linear models
 
@@ -970,6 +869,7 @@ Selected variables:
 * `ConsumerPriceInflation_avg` - how much a country was affected by price inflation, averaged over 17 years
 
 We further refine our model by backward selection. 
+
 ```{r results='asis'}
 # economic factors lm
 lm.econ.1 <- lm(data = data.train, formula = VSI ~ ExportGoodsServices.GDP_avg + 
@@ -999,7 +899,6 @@ GDP per capita and consumer price inflation have a significant effect on Vaccina
 
 Let's now build a model focused on COVID related factors. Note that all variables correspond to COVID cases and deaths reported prior to a country's given vaccination start date. 
 
-
 Selected variables:
 
 * `monthly.new.cases.per.100_max` - max monthly case rate reached prior to vaccination start
@@ -1024,7 +923,6 @@ stargazer(lm.covid.1, lm.covid.1.refined, lm.covid.2.refined, type = "html", ali
 ```
   
 The peak number of monthly new cases per hundred prior to vaccination start has a significant effect on `VSI`. Therefore, vaccination success seems influenced by a country's peak number of cases prior to starting its vaccination campaign, where a higher number of cases leads to a better vaccination score. This could be explained by the fact that people may have a stronger vaccination incentive when COVID cases are more frequent around them. 
-
 
 #### Political and country development factors
 
@@ -1077,7 +975,6 @@ lm.political.5.refined <- update(lm.political.4.refined, .~. -IndividualsUsingIn
 #Anova(lm.political.5.refined)
 lm.political.6.refined <- update(lm.political.5.refined, .~. -CompulsoryEducationDurationYears_latest)
 Anova(lm.political.6.refined)
-
 ```
 
 World region and 17-year averages of life expectancy, women in business and law professions, and regime type have a significant effect on VSI. More specifically, it appears that compared to the reference world region (Central and Southern Asia), all other regions are associated with lower VSI except Eastern and South-Eastern Asia, who have a higher VSI. Higher life expectancy and more women employed in business or law are associated with higher VSI. Finally, compared to the reference regime type (closed autocracy, which includes countries such as Angola, Morocco, Jordan, etc.), other more liberal regime types are associated with lower VSI scores. This likely reflects the imposition of vaccination mandates - which often face opposition in countries with robust legal precedents for health autonomy - in more authoritarian countries.
@@ -1112,6 +1009,7 @@ Anova(lm.full)
 ```
 
 Now we refine our model by backward selection. 
+
 ```{r results = 'asis'}
 # remove non-significant variables
 lm.full.1.refined <- update(lm.full, .~. -cumulative_total_cases_per_hundred_prevac 
@@ -1130,7 +1028,8 @@ lm.full.3.refined <- update(lm.full.2.refined, .~. -ConsumerPriceInflation_avg)
 #Anova(lm.full.3.refined)
 #summary(lm.full.3.refined)
 stargazer(lm.full.3.refined, type = "html", align=TRUE, title = "Full Model")
-
+```
+```{r, fig.height=3, fig.width=5}
 # generating diagnostic plots
 par(mfrow = c(1,2), mar = c(5,2,4,2), mgp = c(3,0.5,0)) # plot(fit3) produces several plots
 plot(lm.full.1.refined, 1, pch = 16) # residual plot
@@ -1168,7 +1067,7 @@ coef.1se <- coef.1se[which(coef.1se != 0),] # show variables with non-zero coeff
 
 # output variable names
 coef.1se <- rownames(as.matrix(coef.1se))[-1] 
-coef.1se
+#coef.1se
 
 # output lm based on LASSO
 coef.1se <- coef(lasso.avg, s="lambda.1se")  #s=c("lambda.1se","lambda.min") or lambda value
@@ -1199,7 +1098,7 @@ opt.size <- which.min(f.e$cp) #pick size with lowest cp
 regsub.fit.var <- f.e$which # logic indicators which variables are in
 
 regsub.vars <- colnames(regsub.fit.var)[regsub.fit.var[opt.size,]][-1] # output variables selected
-regsub.vars
+#regsub.vars
 
 fit1.lm <- lm(VSI ~ WorldRegion +
                 WorldBankIncomeClass_latest +
@@ -1225,7 +1124,6 @@ Anova(fit1.lm.3.refined)
 ```
 
 Reducing to only significantly predictive variables, we find they are fairly similar to those identified by our full linear model. This is reassuring to have our data-driven model identify similar predictors to our hypothesis-driven models. 
-
 
 # Random Forest
 
@@ -1272,12 +1170,10 @@ The final Random Forest model, now that it's been tuned, is performing with an O
 
 # Neural Networks
 
-Next, we'll run neural nets. Though the data has high completion to begin with (only `r (sum(is.na(final.df))/(99*66))*100`% missing in `df.pred`), neural nets cannot take NA inputs. Because the benefits of NN arise in large datasets and our data is relatively small to begin with, we'll impute missing values prior to building, training and fitting our network. 
-
-
-Imputing, setting dummy vars & re-subsetting `data.imp.train` and `data.imp.val`:
+Next, we'll run neural nets. Though the data has high completion to begin with (only `r (sum(is.na(final.df))/(99*66))*100`% missing in `df.pred`), neural nets cannot take NA inputs. Because the benefits of NN arise in large datasets and our data is relatively small to begin with, we'll impute missing values prior to building, training and fitting our network.
 
 ```{r}
+#Imputing, setting dummy vars & re-subsetting `data.imp.train` and `data.imp.val`
 #skim(data.train.test)
 #need to impute over NAs, using missForest
 df.pred.nn <- df.pred %>% 
@@ -1454,7 +1350,7 @@ weighted.val.mse
 
 Unfortunately the MSE from applying our weighted ensemble method to unseen validation data (`r weighted.val.mse`) is much larger than that of our training data (`r weighted.train.mse`). This suggests that the ensemble model and/or one of the underlying models bagged to create it suffered from overfitting.
 
-```{r}
+```{r fig.height=8, fig.width=16}
 #find correlation
 val.cor_value <- cor(validation.df.yhat$VSI, validation.df.yhat$weighted.pred, use = "complete.obs")
 
@@ -1525,6 +1421,7 @@ We hope that these analyses may be useful in shaping future discussions about th
 ## Additional EDA
 
 ### WSD
+
 Detailed graph of the number of years with data reported for each country:
 
 ```{r fig.width=10, fig.height=15}
@@ -1570,6 +1467,92 @@ ggplot(data.processed[data.processed$WorldRegion=="Central and Southern Asia", ]
   ggtitle("Proportion Urban Population by Year in Central and Southern Asia")
 ```
 
+Plotting correlations between variables
+
+```{r fig.width=27, fig.height=27}
+#plot
+# create correlation plot to see whether some variables are highly correlated (not tolerated by lm)
+wsd.sum.wide %>% 
+  select_if(., is.numeric) %>%
+  cor(., use = "pairwise.complete.obs") %>%
+  corrplot(method = "color", 
+           type = "upper", order = "hclust", 
+           addCoef.col = "black", # Add coefficient of correlation
+           tl.col="black", tl.srt = 45, #Text label color and rotation
+           # hide correlation coefficient on the principal diagonal
+           diag = FALSE 
+           )
+
+```
+
+### COVID
+
+```{r fig.height=6, fig.width=6}
+# total people vaccinated per hundred
+plot_vac_percent <- covid %>%
+  drop_na(country, people_vaccinated_per_hundred, date) %>%
+  ggplot(aes(x = date, y = people_vaccinated_per_hundred, color = country, group = country)) + 
+    geom_line(show.legend = FALSE) + 
+    theme_bw() +
+    ggtitle("People vaccinated with respect to the country's total population (%)") +
+    theme(legend.position="bottom")
+
+ggplotly(plot_vac_percent) # generate interactive plot
+```
+
+```{r fig.height=6, fig.width=6}
+# total vaccine doses per hundred
+plot_total_vac <- covid %>%
+  drop_na(country, total_vaccinations_per_hundred, date) %>%
+  ggplot(aes(x = date, y = total_vaccinations_per_hundred, color = country, group = country)) + 
+    geom_line(show.legend = FALSE) + 
+    theme_bw() +
+    ggtitle("Total number of vaccine doses administered per 100 people in the total population (%)") +
+    theme(legend.position="bottom")
+
+ggplotly(plot_total_vac) # generate interactive plot
+```
+
+Plots visualizing the a wide range of vaccination rates over time, with some countries reaching high levels of vaccination at a very fast rate such as Gibraltar and Cuba, some countries showing more progressively increasing rates (e.g., European countries) and some countries having low vaccination rates up until today. 
+
+```{r}
+# and the number of new deaths?
+plot_deaths_weekly <- vac_events_sub %>%
+  ggplot() + 
+    geom_histogram(aes(x = date, y = daily_new_deaths, color = country, group = country, fill = country), 
+                   stat = "identity", alpha = 0.5, binwidth = 0.1) +
+    geom_line(aes(x = date, y = weekly_new_deaths), color = "darkblue", show.legend = FALSE) + 
+    facet_wrap(~country) +
+  # this will generate some warnings when not all countries have all milestones, nothing to worry about
+    geom_vline(data = vac_start_df, aes(xintercept = as.numeric(date), text = sprintf("Start date: %s", date)), linetype = 2, color = "black") +
+    geom_vline(data = vac_30_df, aes(xintercept = as.numeric(date), text = sprintf("30 pct vaccinated: %s", date)), linetype = 2, color = "grey40") +
+    geom_vline(data = vac_50_df, aes(xintercept = as.numeric(date), text = sprintf("50 pct vaccinated: %s", date)), linetype = 2, color = "grey50") +
+    geom_vline(data = vac_70_df, aes(xintercept = as.numeric(date), text = sprintf("70 pct vaccinated: %s", date)), linetype = 2, color = "grey60") +
+    geom_vline(data = vac_90_df, aes(xintercept = as.numeric(date), text = sprintf("90 pct vaccinated: %s", date)), linetype = 2, color = "grey70") +
+    # geom_text(data = vac_start_df, aes(x = as.Date(date), y = 750000, label = date)) + # add static event labels
+    theme_bw() +
+    ggtitle("Worldwide daily new deaths and vaccination milestones") +
+    theme(legend.position="bottom", axis.text.x = element_text(angle = 45))
+
+ggplotly(plot_deaths_weekly, tooltip = "text")
+```
+
+Plotting correlations between variables
+
+```{r fig.width=27, fig.height=27}
+#plot
+# create correlation plot to see whether some variables are highly correlated (not tolerated by lm)
+covid.predict %>% 
+  select_if(., is.numeric) %>%
+  cor(., use = "pairwise.complete.obs") %>%
+  corrplot(method = "color", 
+           type = "upper", order = "hclust", 
+           addCoef.col = "black", # Add coefficient of correlation
+           tl.col="black", tl.srt = 45, #Text label color and rotation
+           # hide correlation coefficient on the principal diagonal
+           diag = FALSE 
+           )
+```
 
 ## Unused Dataframes
 Below is code to generate dataframes that where in the end not used for modeling - may be useful for EDA or post-hoc analyses:
@@ -1677,7 +1660,7 @@ colnames(covid_1yr)[2:19] <- paste(colnames(covid_1yr)[2:19], "1yr", sep = "_") 
 #sum(is.na(covid_1yr$cumulative_total_cases))
 
 #days until country reports vaccinating 20% of pop
-vac_20_df <- covid %>%
+vac_20_df2 <- covid %>%
   dplyr::select(country, date, vaccination_events, date.first.vac) %>%
   filter(vaccination_events == "vac_20pct") %>%
   mutate(days.to.20pct_rel = as.numeric(difftime(date, min(date), units = "days")),
@@ -1687,7 +1670,7 @@ vac_20_df <- covid %>%
   #nrow(vac_20_df)
 
 #days until country reports vaccinating 30% of pop
-vac_30_df <- covid %>%
+vac_30_df2 <- covid %>%
   dplyr::select(country, date, vaccination_events, date.first.vac) %>%
   filter(vaccination_events == "vac_30pct") %>%
   mutate(days.to.30pct_rel = as.numeric(difftime(date, min(date), units = "days")),
@@ -1697,7 +1680,7 @@ vac_30_df <- covid %>%
   #nrow(vac_30_df)
 
 #days until country reports vaccinating 50% of pop
-vac_50_df <- covid %>%
+vac_50_df2 <- covid %>%
   dplyr::select(country, date, vaccination_events, date.first.vac) %>%
   filter(vaccination_events == "vac_50pct") %>%
   mutate(days.to.50pct_rel = as.numeric(difftime(date, min(date), units = "days")),
