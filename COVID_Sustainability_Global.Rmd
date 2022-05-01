@@ -46,7 +46,7 @@ Given the above, the goals of this project are:
 To address the goals of our project, we have combined the following data sets to form an array of predictors: 
 * The [World Sustainability Dataset](https://www.kaggle.com/datasets/truecue/worldsustainabilitydataset): A data set describing several measures of a nation's social, political, economic, and climate-related characterization. This data set was originally aggregated for the TrueCue Women+Data Hackathon, and was released as publicly available after the event. 
 * The [COVID vaccines](https://www.kaggle.com/datasets/gpreda/covid-world-vaccination-progress): A data set containing several vaccination measures, including cumulative vaccinations, the total number of vaccinated people and the number of vaccine doses administered per individual. The data set is updated daily based on Our World in Data GitHub repository for [covid-19](https://github.com/owid/covid-19-data) but for the purpose of this study, data includes vaccine rates up until March 17, 2022.  
-* [COVID cases](https://www.kaggle.com/datasets/josephassaker/covid19-global-dataset): A dataset containing daily reports of cumulative and new cases and deaths in each country. [Country populations in 2021](https://github.com/owid/covid-19-data/blob/master/scripts/input/un/population_latest.csv) are added to this data set to compute "per hundred" variables in addition to the existing cumulative cases and deaths. 
+* [COVID cases](https://www.kaggle.com/datasets/josephassaker/covid19-global-dataset): A dataset containing daily reports of cumulative and new cases and deaths in each country. [Country populations in 2021](https://github.com/owid/covid-19-data/blob/master/scripts/input/un/population_latest.csv) are added to this data set to normalize absolute counts relative to population ("per hundred" variables) in addition to the existing cumulative cases and deaths. 
 
 
 ### Vaccination Success Index 
@@ -55,19 +55,30 @@ The success of a nation's vaccination campaign reflected in many variables, incl
 ## Results 
 Our analyses have yielded several useful insights that may help inform global policy decisions as international resources are allocated to help struggling nations increase vaccination success. 
 
-Linear Regression models based on economic factors, disease burden factors, and political factors, as well as a data-driven LASSO model, have converged on the following variables as significantly predictive of vaccination success:
+Linear Regression models based on economic factors, disease burden factors, and political factors, as well as data-driven LASSO and Regsubsets models, have converged on the following variables as significantly predictive of vaccination success:
 * World Region
 ** Policy Recommendation: Aid should focus on increasing vaccinations in struggling regions (i.e. Sub-Saharan Africa)
 * Life Expectancy (Prior to Pandemic)
 ** Policy Recommendation: Life expectancy often serves as an indicator of a country's overall medical infrastructure. Medical infrastructure resources should be the focus of aid, more so than economic relief alone. 
 * Women in Business and Law
-** Policy Recommendation: This may indicate a nation's gender-based social liberality. Aid should thus be considered for nations that are **needs end of sentence - ex: nations that are socially more conservative?**
+** Policy Recommendation: This may indicate a nation's gender-based social liberality. Aid should thus be considered for nations that are **needs end of sentence - ex: nations that are socially more conservative? ~ what about "Initiatives to promote womens' equality and educational attainment may also have secondary benefits to vaccination and similar public-health campaigns." **
 * Regime Type
-** Policy Recommendation: Mutual aid relationships should be facilitated between nations of varying regime types. 
+** Policy Recommendation: Mutual aid relationships should be facilitated between nations of varying regime types.  
 * Number of Internet Users
-** Internet access should be made widely available as part of aid packages. This may help to provide adequate information regarding vaccinations, and help coordinate a nation's vaccination logistics (i.e. online signups and messaging). 
+** Policy Recommendation: Internet access should be made widely available as part of aid packages. This may help to provide adequate information regarding vaccinations, and help coordinate a nation's vaccination logistics (i.e. online signups and messaging).
+* Government Expenditure as Percent GDP
+** Policy Recommendation: Governments that spend more relative to GDP may be preemptively investing more in public health services and infrastructure required for rapid, broad-scale vaccination campaigns. Countries should be willing to invest in the public services that will be necessary in times of crisis. 
+* World Bank Income Class
+** Policy Recommendation: High-Income nations had more successful vaccination campaigns and should provide aid to lower-income countries to reduce global disease burden.
 
-Furthermore, we have developed more robust models that predict VSI with varying degrees of accuracy (Linear Regression & LASSO, Trees & Random Forest, and Artificial Neural Networks). While predictive accuracy was moderate for each model individually, by creating an ensemble model that averages the predictions of all models, we have achieved a robust predictive ability, that could help forecast vaccination success in subsequent COVID-19 vaccination campaigns and future pandemics. 
+Furthermore, we have developed more robust models that predict VSI with varying degrees of accuracy (Linear Regression & LASSO, Trees & Random Forest, and Artificial Neural Networks). While predictive accuracy was moderate for each model individually, as well as an ensemble model that takes the weighted averages the predictions of all models, we have achieved a level of predictive ability that could help forecast vaccination success in subsequent COVID-19 vaccination campaigns and future pandemics. 
+
+## Conclusion
+
+We have developed a robust vaccination index capturing a country's past vaccination success and our models highlighted several political, economic, social and health-related factors that have a crucial influence on a country's ability to vaccinate its populace. However, this analysis comes with certain limitations. First, the dataset is constrained to countries for which a sufficient amount of data was present to compute both VSI and summary political, economic, social and health-related factors. While this was possible for a substantial number of countries (n = 99), some countries had to be dropped (n = 126 from the vaccination data, n = 42 from the world sustainability data) including large countries such as China, which did not sufficiently report on vaccination data. By obtaining more complete information, future studies may further improve the completeness of this dataset and thereby increase the accuracy of VSI predictions. Moreover, in addition to the factors found to influence VSI in this study, it is likely that other factors influence a country's vaccination success, including more psychosocial and individual characteristics related to beliefs around vaccinations; however, it's likely that some of these latent factors may be captured in our data as they relate to educational attainment, regime type, and life expectancy when interpreted as a broad indicator of a country's healthcare and social safety net. 
+
+In conclusion, we were able to quantitatively define the success of each country's vaccination campaign against COVID-19 and to identify key, modifiable factors that may contribute. While the modest predictive ability of our final model on unseen data is one of several limitations to consider in this work, 
+the COVID-19 crisis has presented a multifaceted and evolving challenge to governments across the globe. Therefore, our analysis represents an important contribution to objectively assessing each country's response and identifying factors that should be considered in addressing future global health crises.
 
 ## Conclusion
 
@@ -79,17 +90,18 @@ In conclusion, **out of inspiration rn, would be nice to have a little conclusio
 
 # Data Preprocessing
 
-Before starting to do more involved EDA, we will preprocess our data to ensure we have wokable datasets to begin our exploration with. 
+Before starting to do more involved EDA, we will preprocess our data to ensure we have workable datasets to begin our exploration with. At the completion of preprocessing, we will have two longitudinal dataframes: one containing WSD predictors and one containing COVID case, death, and vaccination data. These dataframes will subsequently be summarized to capture the most important features of each variable by country, enabling us to merge the dataframes and model on these sythesized per-country metrics.
 
 ## WSD preprocessing
 
 First, we will begin to process the World Sustainability Dataset. 
-```{r, eval = FALSE}
+
+```{r}
 data.raw <- read.csv('data/WorldSustainabilityDataset.csv', header = TRUE)
 ```
 
 There are some missing elements labeled as empty instead of NA. Let's fix this before proceeding.
-```{r, eval = FALSE}
+```{r}
 data.raw[data.raw == ""] <- NA
 
 #There are quite a few NAs. Let's get fields have at least a 90% complete rate. 
@@ -139,9 +151,12 @@ data.processed$WorldBankIncomeClass <- as.factor(data.processed$WorldBankIncomeC
 
 # Export the processed data
 write.csv(data.processed, "data/WorldSustainabilityData_Processed.csv", row.names = FALSE)
-#rename and save for merge
-wsd <- data.processed
-save(wsd, file="data/WorldSustainabilityData_Processed.Rda")
+
+
+#rename and rearrange prior to merge with covid data
+wsd <- data.processed %>% dplyr::select(1:2,"Continent", "WorldRegion", 3:21,23:31) %>% # rearrange a little to group continent & World Region with the other geographic data
+  mutate(Country.Name=as.factor(Country.Name)) %>%
+  rename(country=Country.Name)
 ```
 
 ## COVID preprocessing
@@ -299,22 +314,159 @@ save(covid, file = "data/covid_cases_vaccines_clean.Rda")
 
 To start, we'll try several different methods of summarizing the longitudinal WSD data into a single "timepoint". We selected the latest data reported for each country (restricted to 2016 or later) and calculated: the average of each parameter over time (2001 to 2018); the average of the last 3 years of data (2016-2018); and the relative and absolute change in each parameter over time (2001-2018). In order to maximize completeness and recency of the dataset while minimizing colinearity, we decided to use each country's latest data and data averaged over 17 years in our models below *question - except nns?*. Code for each unused summary dataframe can be found in the appendix.
 
-Load outputs from data cleaning:
 
-```{r load.dfs}
-load("data/WorldSustainabilityData_Processed.Rda")
-#skim(wsd)
-max(wsd$Year)
-wsd <- wsd %>% dplyr::select(1:2,"Continent", "WorldRegion", 3:21,23:31) %>% # rearrange a little to group continent & World Region with the other geographic data
-  mutate(Country.Name=as.factor(Country.Name)) %>%
-  rename(country=Country.Name)
 
-load("data/covid_cases_vaccines_clean.Rda")
-#skim(covid)
+## COVID preprocessing
+
+Next, we will read in COVID cases/deaths and vaccination data sets. We remove countries with too many NAs and generate new variables indicating cases and deaths per hundred, to account for the total population in each country.  
+
+```{r}
+# load cases data
+df_cases <- read.csv("data/worldometer_coronavirus_daily_data.csv")
+
+# transform some variables
+df_cases <- df_cases %>%
+  mutate(country = as.factor(country),
+         date = lubridate::mdy(date),
+         year = lubridate::year(date),
+         month_num = lubridate::month(date),
+         week = as.factor(lubridate::week(date)))
+
+df_cases$month <- month.abb[df_cases$month_num] # convert to month names
+head(df_cases)
+
+#load and merge in population data
+df_pop <- read.csv("data/pop_2021.csv")
+df_pop <- df_pop %>% rename(country=entity) %>%
+  select(country, population)
+df_pop$country<-recode_factor(df_pop$country, "United States" = "USA")
+
+#create new metrics per hundred
+df_cases <- left_join(df_cases, df_pop, by = "country") %>%
+  mutate(daily_new_cases_per_hundred = (daily_new_cases/population)*100,
+        daily_new_deaths_per_hundred = (daily_new_deaths/population)*100,
+        cumulative_total_cases_per_hundred = (cumulative_total_cases/population)*100,
+        active_cases_per_hundred = (active_cases/population)*100,
+        cumulative_total_deaths_per_hundred = (cumulative_total_deaths/population)*100)
+
+# create new monthly and weekly cases/deaths variables
+df_cases <- df_cases %>%
+  # monthly
+  group_by(month_num, year, country) %>% 
+  mutate(
+    monthly_new_cases = sum(daily_new_cases, na.rm = TRUE),
+    monthly_new_deaths = sum(daily_new_deaths, na.rm = TRUE),
+    monthly_new_cases_per_hundred = sum(daily_new_cases_per_hundred, na.rm = TRUE),
+    monthly_new_deaths_per_hundred = sum(daily_new_deaths_per_hundred, na.rm = TRUE),
+    month_year = make_date(year, month_num) 
+  ) %>%
+  ungroup() %>%
+  # weekly
+  group_by(week, year, country, month_num) %>% 
+  mutate(
+    weekly_new_cases = mean(daily_new_cases, na.rm = TRUE),
+    weekly_new_deaths = mean(daily_new_deaths, na.rm = TRUE),
+    weekly_new_cases_per_hundred = sum(daily_new_cases_per_hundred, na.rm = TRUE),
+    weekly_new_deaths_per_hundred = sum(daily_new_deaths_per_hundred, na.rm = TRUE),
+    month_year = make_date(year, month_num)
+    )
+
+# load vaccination data
+df_vac <- read.csv("data/country_vaccinations.csv")
+
+# transform some variables
+df_vac <- df_vac %>%
+  mutate(country = as.factor(country),
+         country = recode_factor(country, `United States` = "USA"),
+         iso_code = as.factor(iso_code),
+         vaccines = as.factor(vaccines),
+         date = lubridate::ymd(date),
+         year = lubridate::year(date),
+         month_num = lubridate::month(date))
+
+df_vac$month <- month.abb[df_vac$month_num] # convert to month names
+
+# keep only countries that report on people vaccinated per hundred as this is one of the more important metrics
+df_vac_nona_clean <- df_vac %>%
+  # filter to keep only non-NA in people_vaccinated_per_hundred
+  drop_na(people_vaccinated_per_hundred) %>%
+  # group by month, year
+  group_by(month, year, country) %>%
+  # select first available value of each month
+  filter(date == min(date))
+
+# merge the cases and vaccinations dataset by country and date keeping all the df_cases rows
+df_merged <- merge(df_cases, 
+                   df_vac_nona_clean[ , -which(names(df_vac_nona_clean) %in% c("year", "month_num","month"))], 
+                   by = c("country", "date"), all.x = TRUE)
+
+
+# find dates corresponding to important vaccination milestones
+df_merged <- df_merged %>%
+  group_by(country) %>%
+  mutate(vaccination_events = as.factor(case_when(people_vaccinated_per_hundred >= 90 ~ "vac_90pct",
+                                        people_vaccinated_per_hundred >= 80 ~ "vac_80pct",
+                                        people_vaccinated_per_hundred >= 70 ~ "vac_70pct",
+                                        people_vaccinated_per_hundred >= 60 ~ "vac_60pct",
+                                        people_vaccinated_per_hundred >= 50 ~ "vac_50pct",
+                                        people_vaccinated_per_hundred >= 40 ~ "vac_40pct",
+                                        people_vaccinated_per_hundred >= 30 ~ "vac_30pct",
+                                        people_vaccinated_per_hundred >= 20 ~ "vac_20pct",
+                                        people_vaccinated_per_hundred >= 10 ~ "vac_10pct",
+                                        people_vaccinated_per_hundred >= 0 & people_vaccinated_per_hundred < 10 ~ "vac_start",
+                                        TRUE ~ "no")),
+         vaccination_events = replace(vaccination_events, duplicated(vaccination_events), NA) # keep only first occurrence of an event
+         )  
+
+# Add percent vaccinated bins AT LATEST REPORTED DATE
+bins_df <- df_vac_nona_clean %>%
+  group_by(country) %>%
+  filter(date == max(date)) %>% # filter for the last reported date in each country
+  # create new binning variable
+  mutate(binned_people_vaccinated_per_hundred = case_when(people_vaccinated_per_hundred < 10 ~ "Under 10%", 
+                                                          people_vaccinated_per_hundred >= 10 & people_vaccinated_per_hundred < 20 ~ "10-20%",
+                                                          people_vaccinated_per_hundred >= 20 & people_vaccinated_per_hundred < 30 ~ "20-30%",
+                                                          people_vaccinated_per_hundred >= 30 & people_vaccinated_per_hundred < 40 ~ "30-40%",
+                                                          people_vaccinated_per_hundred >= 40 & people_vaccinated_per_hundred < 50 ~ "40-50%",
+                                                          people_vaccinated_per_hundred >= 50 & people_vaccinated_per_hundred < 60 ~ "50-60%",
+                                                          people_vaccinated_per_hundred >= 60 & people_vaccinated_per_hundred < 70 ~ "60-70%",
+                                                          people_vaccinated_per_hundred >= 70 & people_vaccinated_per_hundred < 80 ~ "70-80%",
+                                                          people_vaccinated_per_hundred >= 80 & people_vaccinated_per_hundred < 90 ~ "80-90%",
+                                                          people_vaccinated_per_hundred >= 90 ~ "Above 90%"
+                                                          )) %>%
+  select(country, binned_people_vaccinated_per_hundred)
+
+# merge with main
+df_merged <- merge(df_merged, bins_df, by = c("country"), all.x = TRUE)
+
+# checking that there are no countries with more than 10% vaccinated at their vac_start mark
+df_merged %>%
+  filter(vaccination_events == "vac_start" & people_vaccinated_per_hundred > 10) %>%
+  select(country, vaccination_events, people_vaccinated_per_hundred)
+
+# find dates corresponding to important vaccination milestones
+df_merged <- df_merged %>%
+  group_by(country) %>%
+  mutate(vaccine_dose_events = as.factor(case_when(total_vaccinations_per_hundred >= 300 ~ "3_doses",
+                                                   total_vaccinations_per_hundred >= 200 ~ "2_doses",
+                                                   total_vaccinations_per_hundred >= 100 ~ "1_dose",
+                                                   TRUE ~ "no")),
+         vaccine_dose_events = replace(vaccine_dose_events, duplicated(vaccine_dose_events), NA) # keep only first occurrence of an event
+         )  
+
+# let's look at df_merged
+head(df_merged)
+dim(df_merged)
+
+# save merged df (this will be used to merge with the sustainability data)
+write.csv(df_merged, "data/covid_cases_vaccines_clean.csv")
+#rename prior to merge with WSD
+covid <- df_merged %>% ungroup()
+#save(covid, file = "data/covid_cases_vaccines_clean.Rda")
 ```
 
 ```{r}
-#some discrepancy in how countries are named, gonna fix that
+#some discrepancy in how countries are named, gonna fix that before proceeding
 wsd.country <- levels(wsd$country)
 covid.country <- levels(covid$country)
 #setdiff(wsd.country, covid.country) #only in wsd, not covid
@@ -323,6 +475,13 @@ covid.country <- levels(covid$country)
 covid$country <- recode_factor(covid$country, "UK"="United Kingdom", "Gambia"="Gambia, The", "Laos"="Lao PDR", "Egypt"="Egypt, Arab Rep.", "South Korea"="Korea, Rep.", "USA"="United States", "Russia"="Russian Federation", "Venezuela"="Venezuela, RB", "Democratic Republic Of The Congo"="DRC")
 wsd$country <- recode_factor(wsd$country,  "Iran, Islamic Rep."="Iran", "Bosnia and Herzegovina"="Bosnia And Herzegovina", "Cote d'Ivoire"="Cote D Ivoire", "Guinea-Bissau"="Guinea Bissau", "Kyrgyz Republic"="Kyrgyzstan", "North Macedonia"="Macedonia", "Eswatini"="Swaziland", "Vietnam"="Viet Nam", "Timor-Leste"="Timor Leste", "Slovak Republic"="Slovakia", "Congo, Rep."="Congo", "Congo, Dem. Rep."="DRC")
 ```
+
+
+# WSD EDA & Summary Values
+
+To start, we'll try several different methods of summarizing the longitudinal WSD data into a single "timepoint". We selected the latest data reported for each country (restricted to 2016 or later) and calculated: the average of each parameter over time (2001 to 2018); the average of the last 3 years of data (2016-2018); and the relative and absolute change in each parameter over time (2001-2018). In order to maximize completeness and recency of the dataset while minimizing colinearity, we decided to use each country's latest data and data averaged over 17 years in our models below. Code for unused summary dataframes can be found in the appendix.
+
+First we extract just the last year of reported data for each country, restricted to 2016 or later. As seen below, the majority of countries have 2018 data, though we are able to preserve an additional 23 countries by reaching back to 2016 data. 
 
 
 ```{r}
@@ -337,19 +496,6 @@ table(as.factor(wsd.latest$Year_latest)) # see yr frequencies
 ```
 
 As seen below, there is a great deal of variability in how many years each country has data reported in the WSD dataset:
-
-```{r fig.width=10, fig.height=10}
-wsd %>% mutate(country = as.character(country)) %>% 
-  group_by(country) %>%
-  mutate(n_years = n()) %>%
-  arrange(n_years) %>%
-  ggplot() + geom_bar(aes(y = forcats::fct_reorder(country, -n_years), fill = country)) +
-  theme(legend.position = "none") +
-  ggtitle("Years of data reported for each country") +
-  xlab("Number of years reported")
-```
-
-This is a limitation that should be kept in mind when interpreting the results of our model and the predictive power of averaged variables in particular, since an averaged GDP for one country might reflect 17 years of data while the averaged GDP of another may only reflect 3 years. 
 
 ```{r}
 # averages for numeric
@@ -392,6 +538,7 @@ ggplot(data = wsd.avg, aes(x = nYears_avg)) +
   ylab("Number of countries") +
   ggtitle("Frequency of countries reporting data for a given number of years")
 ```
+This is a limitation that should be kept in mind when interpreting the results of our model and the predictive power of averaged variables in particular, since an averaged GDP for one country might reflect 17 years of data while the averaged GDP of another may only reflect 3 years. A full graphical representation of years reported by country can be found in the Appendix.
 
 Next we'll merge the latest data and averaged data into one wide wsd dataframe and remove any variables that are highly correlated:
 
@@ -806,6 +953,7 @@ vac_maxrate <- covid %>%
 Now let's merge all these vaccination dfs into one dataframe so we can create a VSI to predict!
 
 First we'll dump all the vaccine-related stuff into one big dataframe here:
+
 ``` {r}
 #big df for vaccine info
 last.vac <- last.timepoint %>% dplyr::select("country"| contains("vacc"))#get just vaccine stuff from  last.timepoint
@@ -856,7 +1004,7 @@ vac.sum.with.VSI <- vac.sum.pca # copy the data
 vac.sum.with.VSI$VSI <- -vax.pca3$x[,1] # append the VSI (inverse signed PC1 scores), where a positive nb means a country was good at getting people vaccinated
 ```
 
-PC1 explains 73% of the variance and is therefore an excellent index indicating how well a country did at vaccinating their population; we'll take the inverse so that a higher VSI indicated a . We are calling it the "Vaccination Success Index", i.e. `VSI`. 
+PC1 explains 73% of the variance and is therefore an excellent index indicating how well a country did at vaccinating their population. Based on the relative loadings of each variable, we'll take the inverse of PC1 so that a higher metric indicates a more successful vaccination campaign. We are calling it the "Vaccination Success Index", i.e. `VSI`. 
 
 Let's see how the VSI loadings are distributed across countries: 
 
@@ -891,12 +1039,12 @@ do.call(addMapLegend, c(mapParams, legendLabels = "all", legendWidth = 0.5, lege
 
 ```
 
-Based on the distribution plot, we can see that Somalia appears to be the country with the lowest VSI, and Cuba appears to have the highest VSI. The world map furthermore indicates that generally, North and South America, Europe, Australia and Japan are some regions with higher VSI scores, whereas regions including Africa, Russia and some Asian countries seem to have lower VSI scores. Note that countries without any color are not included in this dataset as they did not report vaccination data required for the computation of VSI. 
+Based on the distribution plot, we can see that Somalia appears to be the country with the lowest VSI, and Cuba appears to have the highest VSI. The world map furthermore indicates that generally, North and South America, Europe, Australia and Japan are some regions with higher VSI scores, whereas regions including Africa, Russia and some Asian countries seem to have lower VSI scores. Note that countries without any color are not included in this dataset as they did not report sufficient vaccination data required for the computation of VSI; notable absences include China and the UK. 
 
 
-# Compiling Dataset
+# Compiling the Final Dataset
 
-We'll write our final dataset by joining our WSD predictors, prevax COVID case & death predictors, and VSI. 
+We'll write our final, cleaned dataset by joining our WSD predictors, prevaccination COVID case and death predictors, and the VSI. 
 
 ```{r}
 #merging WSD predictors with cases, deaths & maxrate data
@@ -907,21 +1055,22 @@ case.wsd.wide <- inner_join(wsd.nocor, covid.nocor, by="country") #predictors on
 yval <- vac.sum.with.VSI %>% dplyr::select("country", "VSI")
 final.df <- inner_join(case.wsd.wide, yval,  by=("country"))
 #names(final.df)
-n_unique(final.df$country)
+
 
 ##WRITE CSVs FOR MODELING##
 #write.csv(case.wsd.wide, "data/case.wsd.wide-predictors.csv", row.names = FALSE)
-#write.csv(final.df, "data/final.df.csv", row.names = FALSE)
+write.csv(final.df, "data/final.df.csv", row.names = FALSE)
 ```
 
+Upon merging, we are left with data on `n_unique(final.df$country)` unique countries.
 
 # Modeling
 
-In this section, we are using socioeconomic factors and pre-vaccination COVID cases and deaths from `case.wsd.wide` to predict Vaccination Success Index (VSI). Note that VSI corresponds the inverse signed PC1 scores and (based on the relative loadings of each raw vaccination value) indicates how well a country did at getting people vaccinated, i.e. a positive score indicates a good vaccination performance, while a negative score indicates a poor vaccination performance. 
+In this section, we are using socioeconomic factors and pre-vaccination COVID cases and deaths to predict Vaccination Success Index (VSI). Note that VSI corresponds the inverse signed PC1 scores and (based on the relative loadings of each raw vaccination value) indicates how well a country did at getting people vaccinated, i.e. a positive score indicates a good vaccination performance, while a negative score indicates a poor vaccination performance. 
 
 ## Data splitting
 
-We'll start by subsetting our dataset of 99 countries into `data.train`(85%) and `data.val` (15%). These splits were chosen because our dataset has a relatively small number of predictors and our most robust modeling methods have means of estimating testing error (Random Forest's OOB error, Regsubsets Cp, Neural Networks' internal data.val split).
+We'll start by subsetting our dataset of 99 countries into `data.train`(85%) and `data.val` (15%). These splits were chosen because our dataset has a relatively small number of predictors and our most robust modeling methods have means of estimating testing error (Random Forest's OOB error, Regsubsets Cp, Neural Networks' internal data.val split). `data.val` will be reserved to validate our final ensemble model.
 
 ```{r}
 # Split the data 
@@ -941,13 +1090,12 @@ data.train <- as.data.frame(df.pred[idx_train,])
 data.val <- as.data.frame(df.pred[idx_val,])
 ```
 
-
 Let's now see how various socioeconomic, sustainability and political factors may be associated with VSI. To develop the most accurate prediction, we will compare a range of methods going from supervised to unsupervised:
 
 * Linear models
 * LASSO model selection
-* Random forests
 * Regsubsets
+* Random forests
 * Neural networks
 
 
@@ -1007,10 +1155,9 @@ Selected variables:
 
 * `monthly.new.cases.per.100_max` - max monthly case rate reached prior to vaccination start
 * `monthly.new.deaths.per.100_max` - max monthly death rate reached prior to vaccination start
-
+* `cumulative_total_deaths_per_hundred_prevac` - cumulative number of deaths on last report prior to vaccinations beginning in each country, normalized by population
 
 ```{r}
-
 # build covid model
 lm.covid.1 <- lm(VSI ~ monthly.new.cases.per.100_max + monthly.new.deaths.per.100_max + cumulative_total_deaths_per_hundred_prevac, data = data.train)
 summary(lm.covid.1)
@@ -1076,7 +1223,7 @@ Anova(lm.political.6.refined)
 
 ```
 
-World region and 17-year averages of life expectancy, women in business and law professions, and regime type have a significant effect on VSI. More specifically, it appears that compared to the reference world region (Central and Southern Asia), all other regions are associated with lower VSI except Eastern and South-Eastern Asia, who have a higher VSI. Higher life expectancy and more women employed in business or law are associated with higher VSI. Finally, compared to the reference regime type (closed autocracy, which includes countries such as Angola, Morocco, Jordan, etc.), other regime types are associated with lower VSI scores. 
+World region and 17-year averages of life expectancy, women in business and law professions, and regime type have a significant effect on VSI. More specifically, it appears that compared to the reference world region (Central and Southern Asia), all other regions are associated with lower VSI except Eastern and South-Eastern Asia, who have a higher VSI. Higher life expectancy and more women employed in business or law are associated with higher VSI. Finally, compared to the reference regime type (closed autocracy, which includes countries such as Angola, Morocco, Jordan, etc.), other more liberal regime types are associated with lower VSI scores. This likely reflects the imposition of vaccination mandates - which often face opposition in countries with robust legal precedents for health autonomy - in more authoritarian countries.
 
 
 #### Full model
@@ -1132,34 +1279,6 @@ plot(lm.full.1.refined, 2) # qqplot
 
 When using all relevant variables found in prior models, it turns out that world region, life expectancy, the number of women employed in business and law, and regime type have a significant effect on `VSI`. Diagnostic plots show that the model sufficiently fulfills linear model assumptions of normality and homoscedasticity.   
 
-The relationship between life expectancy and VSI is plotted here: 
-
-
-```{r}
-# get life expectancy p value
-lm.full.2.refined.summ <- summary(lm.full.2.refined)
-pval <- lm.full.2.refined.summ$coefficients[["LifeExpenctancy_avg", "Pr(>|t|)"]]
-
-# get life expectancy correlation with VSI
-cor_value <- cor(data.train$LifeExpenctancy_avg, data.train$VSI, use = "complete.obs")
-
-plot_VSI_lifexp <- final.df %>% # using full df here to include country information 
-  ggplot(aes(x = LifeExpenctancy_avg, y = VSI)) +
-  geom_point(aes(group = country, color = country), show.legend = FALSE) +
-  geom_smooth(method = "lm", color = "grey") +
-  theme_bw() +
-  ggtitle("Association between life expectancy and VSI") +
-  xlab("Life expectancy (average)") +
-  annotate("text", x = 56, y = max(final.df["VSI"]) - 0.5, # position
-           size = 4, # font size
-           label = paste0("Correlation: ", sprintf("%.3f", cor_value), "\n", # correlation label
-                          "p-value = ", sprintf("%.3f", pval))) # pvalue label
-# plot_VSI_lifexp
-ggplotly(plot_VSI_lifexp) # generate interactive plot
-
-```
-
-
 ## LASSO model selection
 
 Let's now try a slightly more data-driven approach, i.e. using LASSO to select the most relevant variables. Dropping some variables first as LASSO doesn't like NAs. 
@@ -1206,8 +1325,7 @@ LASSO results using the `coef.1se` suggest again that life expectancy is an impo
 
 ## Regsubsets
 
-Running regsubsets to optimize a model by minimizing Cp. 
-We do get a warning that regsubsets still finds our data to be colinear, so we re-run correlation reduction with 95% cutoff on `data.train` to whether we can build a more optimal model. While this alternate model does better in modeling VSI (see *Comparing Regsubsets Models* in the Appendix), we felt this improvement in performance was not worth the lack of comparability with LASSO, RF and other models built on the full `data.train` set of predictors.  
+Next we'll run regsubsets to optimize a model by minimizing Cp. This does return a warning that regsubsets still finds our data to be colinear, so we re-run correlation reduction with 95% cutoff on `data.train` to whether we can build a more optimal model. While this alternate model does better in modeling VSI (see *Comparing Regsubsets Models* in the Appendix), we felt this improvement in performance was not worth the lack of comparability with LASSO, RF and other models built on the full `data.train` set of predictors and thus proceed with the following model.  
 
 ```{r}
 regsub.fit1 <- regsubsets(VSI ~., data.train , nvmax=25, method="forward", really.big = TRUE)
@@ -1232,7 +1350,7 @@ fit1.lm <- lm(VSI ~ WorldRegion +
 Anova(fit1.lm)
 ```
 
-Now let's try some backward selection on this model:
+Now let's run some backward selection on this model:
 
 ```{r}
 fit1.lm.refined <- update(fit1.lm, .~. -weekly_new_deaths_per_hundred_prevac)
@@ -1241,12 +1359,13 @@ fit1.lm.2.refined <- update(fit1.lm.refined, .~. -WorldBankIncomeClass_avg)
 #Anova(fit1.lm.2.refined)
 fit1.lm.3.refined <- update(fit1.lm.2.refined, .~. -cumulative_total_cases_prevac)
 Anova(fit1.lm.3.refined)
+#summary(fit1.lm.3.refined)
 ```
 
-Reducing to only significantly predictive variables, we find they are fairly similar to those identified by our full linear model. *make sure this is still true once Joelle refines*. This is reassuring to have our data-driven model identify similar predictors to our hypothesis-driven models. 
+Reducing to only significantly predictive variables, we find they are fairly similar to those identified by our full linear model. This is reassuring to have our data-driven model identify similar predictors to our hypothesis-driven models. 
 
 
-## Trees & Random Forests
+# Trees & Random Forests
 
 Now, we will try to use tree based methods (single decision tree and random forest) to see if we can predict a country's vaccination success based on social and economic measures prior to the pandemic, as well as COVID case data prior to the start of vaccination campaigns. 
 
@@ -1300,25 +1419,25 @@ The final Random Forest model, now that it's been tuned, is performing with an O
 
 
 
-## Neural Networks
+# Neural Networks
 
-Next, we'll run neural nets. Though the data has high completion to begin with (only `r (sum(is.na(final.df))/(99*66))*100`% missing in `df.pred`), neural nets cannot take NA inputs. Because the benefits of NN arise in large datasets, and our data is relatively small to begin with, we'll impute missing values prior to building, training and fitting our network. 
+Next, we'll run neural nets. Though the data has high completion to begin with (only `r (sum(is.na(final.df))/(99*66))*100`% missing in `df.pred`), neural nets cannot take NA inputs. Because the benefits of NN arise in large datasets and our data is relatively small to begin with, we'll impute missing values prior to building, training and fitting our network. 
 
 
 Imputing, setting dummy vars & re-subsetting `data.imp.train` and `data.imp.val`:
 
 ```{r}
 #skim(data.train.test)
-#need to impute over NAs, using missForest for now
+#need to impute over NAs, using missForest
 df.pred.nn <- df.pred %>% 
   mutate(across(where(is_character),as_factor))
 df.pred.imp <- missForest(df.pred.nn) #variablewise = TRUE
 df.pred.imp$OOBerror #looks good!
 
 nn.imp <- as.data.frame(df.pred.imp$ximp)
-dim(nn.imp) #imputing retains all 61 cols
-dim(df.pred[ , colSums(is.na(df.pred)) == 0]) #as opposed to dropping all NA cols, which only gives us 41
-dim(na.omit(df.pred)) #or dropping rows with NAs, which would mean only 87 countries
+# dim(nn.imp) #imputing retains all 61 cols
+# dim(df.pred[ , colSums(is.na(df.pred)) == 0]) #as opposed to dropping all NA cols, which only gives us 41
+# dim(na.omit(df.pred)) #or dropping rows with NAs, which would mean only 87 countries
 
 #set dummy variables for categorical
 nn.imp.dummy <- dummy_cols(nn.imp, remove_first_dummy = TRUE) %>% #setting remove_first_dummy = TRUE to have base levels
@@ -1337,7 +1456,9 @@ data_xval <- nn.val %>% dplyr::select(-VSI) %>% as.matrix()
 data_yval <- nn.val %>% dplyr::select(VSI) %>% as.matrix()
 ```
 
-Then we build and compile our model: 
+Based on the very low normalized root mean squared error (NRMSE = `r unname(df.pred.imp$OOBerror[1])`) of numeric variables and proportion of falsely classified entries (PFC = `r unname(df.pred.imp$OOBerror[2])`) estimated for categorical variables, we can feel confident in using these imputed values to train our neural network. 
+
+We'll now proceed to build and compile our model: 
 
 ```{r}
 # set seed for keras
@@ -1416,9 +1537,9 @@ fit.nn.full$metrics$loss[min.epoch]
 
 The MSE of this model is now `r fit.nn.full$metrics$loss[min.epoch]`, slightly larger than the training loss on the original (MSE at epoch 65 = `r fit.nn$metrics$loss[min.epoch]`).
 
-## Ensemble
+# Ensemble
 
-Now we'll attempt to create the best model by bagging those created above.
+Now we'll attempt to create the best model by bagging those created above, averaging the predicted VSI values from each model.
 
 ```{r}
 set_random_seed(10)
@@ -1445,11 +1566,11 @@ lasso.train.mse <- mean(na.omit((df.yhat$VSI - df.yhat$lasso)^2))
 rf.train.mse <- mean(na.omit((df.yhat$VSI - df.yhat$rf)^2))
 regsub.train.mse <- mean(na.omit((df.yhat$VSI - df.yhat$regsub)^2))
 nn.train.mse <- mean((df.yhat$VSI - df.yhat$V1)^2)
+df.testerr
 
 # create a table of all models' testing errors
 df.testerr <- data.frame(model=c('full.lm', 'LASSO', 'RandomForest', 'RegSub', 'NN','full.ensemble'),
                  train.mse=c(full.lm.train.mse, lasso.train.mse, rf.train.mse, regsub.train.mse, nn.train.mse, en.train.mse))
-df.testerr
 
 #can we reduce error even further by weighting the predictions from different models?
 weight.list <- c(1, 0.5, 3, 1.25, 1)
@@ -1458,7 +1579,7 @@ df.yhat <- df.yhat %>%
 weighted.train.mse <- mean((df.yhat$VSI - df.yhat$weighted.pred)^2)
 ```
 
-As we can see, the RandomForest MSE is lowest while LASSO's MSE is highest. By weighting the contributions of each model to our final prediciton accordingly, we obtain a training MSE of `r weighted.train.mse`.
+As we can see, the RandomForest MSE is lowest while LASSO's MSE is highest. By weighting the contributions of each model to our final prediction accordingly, we obtain a training MSE of `r weighted.train.mse`.
 
 We'll conclude by running our weighted ensemble method on the validation data we split out at the beginning to see how well this model predicts VSI scores based on data from unseen countries.
 
@@ -1494,9 +1615,57 @@ plot_validation <- validaiton.df.yhat %>%
   ylab("VSI Predicted by Weighted Average Ensemble") +
   annotate("text", x = -3, y = max(validaiton.df.yhat["weighted.pred"]) - 0.5, # position
            size = 4, # font size
-           label = paste0("Correlation: ", sprintf("%.3f", val.cor_value)))
+           label = paste0("Correlation: ", sprintf("%.3f", val.cor_value), "\n",
+                          "Prediction MSE = ", sprintf("%.3f", weighted.val.mse)))
 plot_validation
 ```
+
+# Conclusions
+
+In summary, we were able to create a variety of models predicting our VSI score. The MSE of each model's predictions on the training data is shown here:
+
+```{r}
+df.testerr[nrow(df.testerr)+1,] <- c("weighted.ensemble", weighted.train.mse)
+df.testerr
+```
+
+Given that our dataset was relatively small, a training MSE of around 0.5 in predicting VSI (which ranges almost 10 pts from `r min(final.df$VSI)` to `r max(final.df$VSI)`) may be considered very good performance; this was notably achieved by hypothesis-driven linear modeling, Random Forests, Regsubsets, and our weighted and unweighted ensemble models. While our final ensemble model did not perform as well on our validation data - suggesting that it and/or one of the underlying models were overfitted - *something something to finish this thought*. 
+
+Beyond prediction, the linear models provide a number of insights into country-level variables that are significantly related to vaccination success. Each factor, as well as policy recommendations to address it, are noted above in the Executive Summary. However, it is worth reiterating some key findings here.
+
+Firstly, both LASSO and Regsubsets identified similar sets of predictors to those in our hypothesis-driven thematic linear models. This is reassuring to have our data-driven model identify similar predictors to our hypothesis-driven models and validates our choices in predictors. Our hypothesis-driven linear model also had very good MSE in training relative to even purely data-driven models.
+
+Similarly, every one of our interpretable models (full linear model, LASSO, regsubsets and decision tree) identified averaged life expectancy as a significant predictor of VSI. Life expectancy likely captures a wide range of latent predictors including healthcare access, infrastructure, public health education, and potentially attitudes and social supports that may be beneficial both in physical health outcomes and encouraging vaccination compliance.
+
+The relationship between life expectancy and VSI is plotted here: 
+
+```{r}
+# get life expectancy p value
+lm.full.2.refined.summ <- summary(lm.full.2.refined)
+pval <- lm.full.2.refined.summ$coefficients[["LifeExpenctancy_avg", "Pr(>|t|)"]]
+
+# get life expectancy correlation with VSI
+cor_value <- cor(data.train$LifeExpenctancy_avg, data.train$VSI, use = "complete.obs")
+
+plot_VSI_lifexp <- final.df %>% # using full df here to include country information 
+  ggplot(aes(x = LifeExpenctancy_avg, y = VSI)) +
+  geom_point(aes(group = country, color = country), show.legend = FALSE) +
+  geom_smooth(method = "lm", color = "grey") +
+  theme_bw() +
+  ggtitle("Association between life expectancy and VSI") +
+  xlab("Life expectancy (average)") +
+  annotate("text", x = 56, y = max(final.df["VSI"]) - 0.5, # position
+           size = 4, # font size
+           label = paste0("Correlation: ", sprintf("%.3f", cor_value), "\n", # correlation label
+                          "p-value = ", sprintf("%.3f", pval))) # pvalue label
+# plot_VSI_lifexp
+ggplotly(plot_VSI_lifexp) # generate interactive plot
+
+```
+
+Furthermore, none of the COVID-19 death or case metrics prior to vaccination onset were found to be predictive when other, non-COVID variables were included. This is surprising, considering that one would expect COVID cases and mortality to have a strong affect on a country's ability, national investment, and individual willingness to undertake large-scale vaccination campaigns. Our analysis is significant in the fact that it indicates non-disease specific factors are actually more relevant to vaccination against COVID-19 than the burden of the disease itself.
+
+We hope that these analyses may be useful in shaping future discussions about the varying strengths of each nation's COVID-19 vaccination campaigns and in global response to health crises more broadly. 
 
 # Appendix
 
@@ -1586,6 +1755,17 @@ wsd.change.fac <- wsd.change.fac %>%
 #now join and drop unnecessary columns used for calculations
 wsd.change <- merge(wsd.change.num, wsd.change.fac, by ="country") %>%
   dplyr::select(country, ends_with("diff"))
+```
+
+Detailed graph of the number of years with data reported for each country:
+
+```{r fig.width=10, fig.height=10}
+wsd %>% mutate(country=as.character(country)) %>% 
+  arrange(country) %>%
+  ggplot() + geom_bar(aes(y = country, fill = country)) +
+  theme(legend.position = "none") +
+  ggtitle("Years of data reported for each country") +
+  xlab("Number of years reported")
 ```
 
 ### COVID Summary Dataframes
