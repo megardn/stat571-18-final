@@ -21,6 +21,7 @@ output:
     toc_depth: '4'
     number_sections: yes
 urlcolor: blue
+always_allow_html: yes
 ---
 
 ```{r Setup, include=FALSE, warning=FALSE}
@@ -158,34 +159,44 @@ wsd$country <- recode_factor(wsd$country,  "Iran, Islamic Rep."="Iran", "Bosnia 
 
 We'll do some exploratory plotting for a few key predictors across all years of reported data. 
 
-```{r, fig.width=8, fig.height=4}
+```{r, fig.width=8, fig.height=8}
 # Frequency of Regime Types in our data
-ggplot(data.processed, aes(x=fct_infreq(RegimeType), fill=fct_infreq(RegimeType))) +
+p1 <- ggplot(data.processed, aes(x=fct_infreq(RegimeType), fill=fct_infreq(RegimeType))) +
   geom_bar(show.legend = FALSE) +
   xlab("Regime Type") +
   ylab("Count") + 
-  ggtitle("Frequency of Regime Type")
+  ggtitle("Frequency of Regime Type") +
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
 
 # World Region Representation
-ggplot(data.processed, aes(x=fct_infreq(WorldRegion), fill=fct_infreq(WorldRegion))) +
+p2 <- ggplot(data.processed, aes(x=fct_infreq(WorldRegion), fill=fct_infreq(WorldRegion))) +
   geom_bar(show.legend = FALSE) +
   xlab("Region") +
   ylab("Count") + 
-  ggtitle("Frequency of World Regions")
+  ggtitle("Frequency of World Regions") + 
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
 
 # GDP per Capita by WorldRegion
-ggplot(data.processed, aes(y=GDP.PerCapita.Current, x=WorldRegion, fill=WorldRegion)) +
+p3 <- ggplot(data.processed, aes(y=GDP.PerCapita.Current, x=WorldRegion, fill=WorldRegion)) +
   geom_boxplot(show.legend = FALSE) +
   xlab("WorldRegion") +
   ylab("GDP Per Capita") + 
-  ggtitle("Per Capita GDP by WorldRegion")
+  ggtitle("Per Capita GDP by WorldRegion") + 
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
 
 # Internet Use by WorldRegion
-ggplot(data.processed, aes(y=IndividualsUsingInternet, x=WorldRegion, fill=WorldRegion)) +
+p4 <- ggplot(data.processed, aes(y=IndividualsUsingInternet, x=WorldRegion, fill=WorldRegion)) +
   geom_boxplot(show.legend = FALSE) +
   xlab("WorldRegion") +
   ylab("Internet Users") + 
-  ggtitle("Internet Users by WorldRegion")
+  ggtitle("Internet Users by WorldRegion") + 
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+
+ggpubr::ggarrange(p1, p2, p3, p4, nrow = 2, ncol = 2)
 ```
 
 Further visualizations can be found in the Appendix under `Additional EDA`.
@@ -440,7 +451,7 @@ covid$country <- recode_factor(covid$country, "UK"="United Kingdom", "Gambia"="G
 
 We will start by visualizing some of the most relevant variables and patterns in the cases, deaths and vaccinations data. Further plots can also be found in the Appendix. To view current vaccination status nationally, we bin countries by their latest achieved vaccination rate (per hundred to account for their total populations):
 
-```{r fig.height=5, fig.width=9}
+```{r fig.height=4, fig.width=8}
 # select the most recent reported vaccination percent for every country
 box_pct_vac <- covid %>%
   drop_na(people_vaccinated_per_hundred) %>%
@@ -448,13 +459,17 @@ box_pct_vac <- covid %>%
   filter(date == min(date)) %>% # select first available value of each month
   group_by(country) %>%
   filter(date == max(date)) %>%
-  ggplot(aes(x = forcats::fct_reorder(binned_people_vaccinated_per_hundred, -people_vaccinated_per_hundred, .fun = median), y = people_vaccinated_per_hundred, 
+  mutate(binned_people_vaccinated_per_hundred = factor(binned_people_vaccinated_per_hundred, levels=c("Under 10%", "10-20%", 
+                                                                      "20-30%", "30-40%", 
+                                                                      "40-50%", "50-60%", 
+                                                                      "60-70%", "70-80%",
+                                                                      "80-90%", "Above 90%"))) %>%
+  ggplot(aes(x = binned_people_vaccinated_per_hundred, 
              group = binned_people_vaccinated_per_hundred, fill = binned_people_vaccinated_per_hundred, color = binned_people_vaccinated_per_hundred)) +
-  geom_boxplot(alpha = 0.5) +
-  geom_jitter(aes(text=sprintf("Country: %s<br> Rate: %s", country, people_vaccinated_per_hundred))) +
+  geom_bar() +
   labs(title = "Countries binned by their current vaccination rate",
-       x = "Current vaccination rates (March 2022)",
-       y = "Percent people vaccinated per 100 in total population",
+       x = "Current vaccination rates (2022)",
+       y = "Number of countries",
        color = "",
        fill = "") +
   theme_bw()
@@ -463,14 +478,14 @@ ggplotly(box_pct_vac, tooltip = "text")
 
 ```
 
-As we can see, vaccination rates are currently sill very variables across the world. 
+As we can see, vaccination rates are currently still very variable across the world. 
 
 Let's now pick a few countries to examine the evolution of the number of cases with respect to important vaccination milestones, such as when vaccination start and when progressively greater percentages of the population have been vaccinated. Keep in mind that some countries have not yet reached some of these milestones as of today and therefore, a different number of milestones may be present for each country represented below. Plots relating COVID-19 deaths with vaccination  milestones can be found in the Appendix.
 
-```{r}
+```{r fig.height=5, fig.width=9}
 # filter some countries
 vac_events_sub <- covid %>%
-  filter(country %in% c("USA", "Brazil", "Cuba", "Italy", "France", "Germany", "Japan", "India", "Australia", "South Africa", "Egypt", "Sudan")) 
+  filter(country %in% c("United States", "Brazil", "Cuba", "Italy", "France", "Germany", "Japan", "India", "Australia", "South Africa", "Morocco", "Sudan")) 
 
 # create vaccination start df
 vac_start_df <- vac_events_sub %>%
@@ -546,7 +561,7 @@ vac_info_2022 <- covid %>%
   filter(date == max(date)) %>%   # keep last reported date for every country
   filter(year == 2022) %>% # keep only countries who last reported in 2022 (as we are interested in a recent vaccination status)
   # filter(month_year == "2022-03-01") # could also filter for march 2022 specifically
-  dplyr::select(country, date, missing_vac_cols) %>% # keep only variables not yet included in last.timepoint
+  dplyr::select(country, date, all_of(missing_vac_cols)) %>% # keep only variables not yet included in last.timepoint
   rename(date.vac = date)# rename the date to correspond to last reported vaccine info
 
 # merge the last reported vaccination info with last reported cases/deaths info
@@ -563,7 +578,7 @@ summary(last.timepoint$date.vac_last)
 
 Every country has some data from March 17, 2022, though some countries' last reported vaccination data was from as early as `r unname(summary(last.timepoint$date.vac_last)[1])`.Next, we'll calculate predictors from COVID case and death rates prior to the day each country reported starting to vaccinate. 
 
-``` {r, warning=FALSE}
+``` {r, warning=FALSE, message=FALSE}
 # find the date each country reported starting to vaccinate
 vac_start_df2 <- covid %>%
   dplyr::select(country, date, vaccination_events) %>%
@@ -726,7 +741,7 @@ vac.sum <- vac.dump %>% dplyr::select(
   people_fully_vaccinated_per_hundred_last # number of people that received the full vaccine (typically 2 doses)
 )
 
-names(vac.sum)
+# names(vac.sum)
 ```
 
 Next we'll perform PCA to create a score to summarize these important vaccination metrics into a continuous rating, the VSI. 
@@ -765,7 +780,7 @@ vac.sum.with.VSI %>%
     ylab("VSI") + 
     ggtitle("Vaccination Success Index (VSI) distribution") +
     theme_bw() +
-    theme(axis.text.x = element_text(angle = 60, hjust = 1))
+    theme(axis.text.x = element_text(angle = 60, hjust = 1, size = 12))
 
 #summary(vac.sum.with.VSI$VSI)#VSI range
 ```
@@ -1486,6 +1501,64 @@ wsd.sum.wide %>%
 ```
 
 ### COVID
+
+Below, we display plots of the cumulative an monthly number of cases worldwide. 
+```{r}
+# let's see how the total cumulative covid cases evolved by country
+plot_cum_cases <- covid %>%
+  # filter(country %in% c("USA", "China", "India")) %>% # to show only some countries
+  # group_by(month, year) %>% 
+  # filter(date == min(date)) %>% #  to show monthly evolution (curves are slightly less smooth)
+  ggplot(aes(x = date, y = cumulative_total_cases, color = country, group = country)) + 
+    geom_line(show.legend = FALSE) + 
+    theme_bw() +
+    ggtitle("Worldwide cumulative cases") +
+    theme(legend.position="bottom")
+
+ggplotly(plot_cum_cases)
+
+# what about the number of new cases?
+plot_cases_monthly <- covid %>%
+  ggplot(aes(x = month_year, y = monthly_new_cases, color = country, group = country)) + 
+    geom_line(show.legend = FALSE) + 
+    theme_bw() +
+    ggtitle("Worldwide monthly new cases") +
+    theme(legend.position="bottom")
+
+ggplotly(plot_cases_monthly)
+```
+
+
+
+We also plot the number of cumulative and monthly new deaths. 
+
+```{r}
+# let's see how the total cumulative covid deaths evolved by country
+plot_cum_deaths <- covid %>%
+  # filter(country %in% c("USA", "China", "India")) %>% # to show only some countries
+  # group_by(month, year) %>% 
+  # filter(date == min(date)) %>% #  to show monthly evolution (curves are slightly less smooth)
+  ggplot(aes(x = date, y = cumulative_total_deaths, color = country, group = country)) + 
+    geom_line(show.legend = FALSE) + 
+    theme_bw() +
+    ggtitle("Worldwide cumulative deaths") +
+    theme(legend.position="bottom")
+
+ggplotly(plot_cum_deaths)
+
+# and the number of new deaths?
+plot_deaths_monthly <- covid %>%
+  ggplot(aes(x = month_year, y = monthly_new_deaths, color = country, group = country)) + 
+    geom_line(show.legend = FALSE) + 
+    theme_bw() +
+    ggtitle("Worldwide monthly new deaths") +
+    theme(legend.position="bottom")
+
+ggplotly(plot_deaths_monthly)
+
+```
+
+
 
 ```{r fig.height=6, fig.width=6}
 # total people vaccinated per hundred
