@@ -1157,6 +1157,7 @@ plot(1:max.mtry, error.p,
      ylab="OOB MSE")
 lines(1:max.mtry, error.p)
 ```
+
 An mtry of around 30 seems to provide good results, so we will use this as our parameter. Now, we train the final Random Forest model based on our tuned parameters.
 
 ```{r}
