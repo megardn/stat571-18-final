@@ -159,162 +159,6 @@ wsd <- data.processed %>% dplyr::select(1:2,"Continent", "WorldRegion", 3:21,23:
   rename(country=Country.Name)
 ```
 
-## COVID preprocessing
-
-Next, we will read in COVID cases/deaths and vaccination data sets. We remove countries with too many NAs and generate new variables indicating cases and deaths per hundred, to account for the total population in each country.  
-
-```{r}
-
-# load cases data
-df_cases <- read.csv("data/worldometer_coronavirus_daily_data.csv")
-
-# transform some variables
-df_cases <- df_cases %>%
-  mutate(country = as.factor(country),
-         date = lubridate::mdy(date),
-         year = lubridate::year(date),
-         month_num = lubridate::month(date),
-         week = as.factor(lubridate::week(date)))
-
-df_cases$month <- month.abb[df_cases$month_num] # convert to month names
-head(df_cases)
-
-#load and merge in population data
-df_pop <- read.csv("data/pop_2021.csv")
-df_pop <- df_pop %>% rename(country=entity) %>%
-  select(country, population)
-df_pop$country<-recode_factor(df_pop$country, "United States" = "USA")
-
-#create new metrics per hundred
-df_cases <- left_join(df_cases, df_pop, by = "country") %>%
-  mutate(daily_new_cases_per_hundred = (daily_new_cases/population)*100,
-        daily_new_deaths_per_hundred = (daily_new_deaths/population)*100,
-        cumulative_total_cases_per_hundred = (cumulative_total_cases/population)*100,
-        active_cases_per_hundred = (active_cases/population)*100,
-        cumulative_total_deaths_per_hundred = (cumulative_total_deaths/population)*100)
-
-# create new monthly and weekly cases/deaths variables
-df_cases <- df_cases %>%
-  # monthly
-  group_by(month_num, year, country) %>% 
-  mutate(
-    monthly_new_cases = sum(daily_new_cases, na.rm = TRUE),
-    monthly_new_deaths = sum(daily_new_deaths, na.rm = TRUE),
-    monthly_new_cases_per_hundred = sum(daily_new_cases_per_hundred, na.rm = TRUE),
-    monthly_new_deaths_per_hundred = sum(daily_new_deaths_per_hundred, na.rm = TRUE),
-    month_year = make_date(year, month_num) 
-  ) %>%
-  ungroup() %>%
-  # weekly
-  group_by(week, year, country, month_num) %>% 
-  mutate(
-    weekly_new_cases = mean(daily_new_cases, na.rm = TRUE),
-    weekly_new_deaths = mean(daily_new_deaths, na.rm = TRUE),
-    weekly_new_cases_per_hundred = sum(daily_new_cases_per_hundred, na.rm = TRUE),
-    weekly_new_deaths_per_hundred = sum(daily_new_deaths_per_hundred, na.rm = TRUE),
-    month_year = make_date(year, month_num)
-    )
-
-# load vaccination data
-df_vac <- read.csv("data/country_vaccinations.csv")
-
-# transform some variables
-df_vac <- df_vac %>%
-  mutate(country = as.factor(country),
-         country = recode_factor(country, `United States` = "USA"),
-         iso_code = as.factor(iso_code),
-         vaccines = as.factor(vaccines),
-         date = lubridate::ymd(date),
-         year = lubridate::year(date),
-         month_num = lubridate::month(date))
-
-df_vac$month <- month.abb[df_vac$month_num] # convert to month names
-
-# keep only countries that report on people vaccinated per hundred as this is one of the more important metrics
-df_vac_nona_clean <- df_vac %>%
-  # filter to keep only non-NA in people_vaccinated_per_hundred
-  drop_na(people_vaccinated_per_hundred) %>%
-  # group by month, year
-  group_by(month, year, country) %>%
-  # select first available value of each month
-  filter(date == min(date))
-
-# merge the cases and vaccinations dataset by country and date keeping all the df_cases rows
-df_merged <- merge(df_cases, 
-                   df_vac_nona_clean[ , -which(names(df_vac_nona_clean) %in% c("year", "month_num","month"))], 
-                   by = c("country", "date"), all.x = TRUE)
-
-
-# find dates corresponding to important vaccination milestones
-df_merged <- df_merged %>%
-  group_by(country) %>%
-  mutate(vaccination_events = as.factor(case_when(people_vaccinated_per_hundred >= 90 ~ "vac_90pct",
-                                        people_vaccinated_per_hundred >= 80 ~ "vac_80pct",
-                                        people_vaccinated_per_hundred >= 70 ~ "vac_70pct",
-                                        people_vaccinated_per_hundred >= 60 ~ "vac_60pct",
-                                        people_vaccinated_per_hundred >= 50 ~ "vac_50pct",
-                                        people_vaccinated_per_hundred >= 40 ~ "vac_40pct",
-                                        people_vaccinated_per_hundred >= 30 ~ "vac_30pct",
-                                        people_vaccinated_per_hundred >= 20 ~ "vac_20pct",
-                                        people_vaccinated_per_hundred >= 10 ~ "vac_10pct",
-                                        people_vaccinated_per_hundred >= 0 & people_vaccinated_per_hundred < 10 ~ "vac_start",
-                                        TRUE ~ "no")),
-         vaccination_events = replace(vaccination_events, duplicated(vaccination_events), NA) # keep only first occurrence of an event
-         )  
-
-# Add percent vaccinated bins AT LATEST REPORTED DATE
-bins_df <- df_vac_nona_clean %>%
-  group_by(country) %>%
-  filter(date == max(date)) %>% # filter for the last reported date in each country
-  # create new binning variable
-  mutate(binned_people_vaccinated_per_hundred = case_when(people_vaccinated_per_hundred < 10 ~ "Under 10%", 
-                                                          people_vaccinated_per_hundred >= 10 & people_vaccinated_per_hundred < 20 ~ "10-20%",
-                                                          people_vaccinated_per_hundred >= 20 & people_vaccinated_per_hundred < 30 ~ "20-30%",
-                                                          people_vaccinated_per_hundred >= 30 & people_vaccinated_per_hundred < 40 ~ "30-40%",
-                                                          people_vaccinated_per_hundred >= 40 & people_vaccinated_per_hundred < 50 ~ "40-50%",
-                                                          people_vaccinated_per_hundred >= 50 & people_vaccinated_per_hundred < 60 ~ "50-60%",
-                                                          people_vaccinated_per_hundred >= 60 & people_vaccinated_per_hundred < 70 ~ "60-70%",
-                                                          people_vaccinated_per_hundred >= 70 & people_vaccinated_per_hundred < 80 ~ "70-80%",
-                                                          people_vaccinated_per_hundred >= 80 & people_vaccinated_per_hundred < 90 ~ "80-90%",
-                                                          people_vaccinated_per_hundred >= 90 ~ "Above 90%"
-                                                          )) %>%
-  select(country, binned_people_vaccinated_per_hundred)
-
-# merge with main
-df_merged <- merge(df_merged, bins_df, by = c("country"), all.x = TRUE)
-
-# checking that there are no countries with more than 10% vaccinated at their vac_start mark
-df_merged %>%
-  filter(vaccination_events == "vac_start" & people_vaccinated_per_hundred > 10) %>%
-  select(country, vaccination_events, people_vaccinated_per_hundred)
-
-# find dates corresponding to important vaccination milestones
-df_merged <- df_merged %>%
-  group_by(country) %>%
-  mutate(vaccine_dose_events = as.factor(case_when(total_vaccinations_per_hundred >= 300 ~ "3_doses",
-                                                   total_vaccinations_per_hundred >= 200 ~ "2_doses",
-                                                   total_vaccinations_per_hundred >= 100 ~ "1_dose",
-                                                   TRUE ~ "no")),
-         vaccine_dose_events = replace(vaccine_dose_events, duplicated(vaccine_dose_events), NA) # keep only first occurrence of an event
-         )  
-
-# let's look at df_merged
-head(df_merged)
-dim(df_merged)
-
-# save merged df (this will be used to merge with the sustainability data)
-write.csv(df_merged, "data/covid_cases_vaccines_clean.csv")
-covid <- df_merged %>% ungroup()
-save(covid, file = "data/covid_cases_vaccines_clean.Rda")
-
-```
-
-
-# WSD EDA & Summary Values
-
-To start, we'll try several different methods of summarizing the longitudinal WSD data into a single "timepoint". We selected the latest data reported for each country (restricted to 2016 or later) and calculated: the average of each parameter over time (2001 to 2018); the average of the last 3 years of data (2016-2018); and the relative and absolute change in each parameter over time (2001-2018). In order to maximize completeness and recency of the dataset while minimizing colinearity, we decided to use each country's latest data and data averaged over 17 years in our models below *question - except nns?*. Code for each unused summary dataframe can be found in the appendix.
-
-
 
 ## COVID preprocessing
 
@@ -865,8 +709,6 @@ head(covid.nocor)
 
 Since defining a country's success in administering vaccines is multifaceted, we'll construct the VSI on several summary metrics in addition to final vaccination counts. For instance, it is likely meaningful to account for how long it took each country to reach certain milestones (such as first starting to administer vaccines, administering X doses to each citizen, or vaccinating X% of the population) as well its peak rate of vaccination (the maximum rate of daily or weekly vaccinations) in determining whether a country did a "good job" in administering COVID vaccines to its populace. 
 
-**much of this is from covid_EDA.Rmd and can be removed/cleaned up once Rmds are fully merged!**
-
 ```{r, warning=FALSE}
 #days until country admins 1 dose per person
 vac_1_dose <- covid %>%
@@ -898,34 +740,6 @@ vac_10_df <- covid %>%
          )
   #nrow(vac_10_df)
 
-#days until country reports vaccinating 20% of pop
-vac_20_df <- covid %>%
-  dplyr::select(country, date, vaccination_events, date.first.vac) %>%
-  filter(vaccination_events == "vac_20pct") %>%
-  mutate(days.to.20pct_rel = as.numeric(difftime(date, min(date), units = "days")),
-         days.to.20pct_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
-         days.to.20pct_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
-         )
-  #nrow(vac_20_df)
-
-#days until country reports vaccinating 30% of pop
-vac_30_df <- covid %>%
-  dplyr::select(country, date, vaccination_events, date.first.vac) %>%
-  filter(vaccination_events == "vac_30pct") %>%
-  mutate(days.to.30pct_rel = as.numeric(difftime(date, min(date), units = "days")),
-         days.to.30pct_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
-         days.to.30pct_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
-         )
-  #nrow(vac_30_df)
-
-#days until country reports vaccinating 50% of pop
-vac_50_df <- covid %>%
-  dplyr::select(country, date, vaccination_events, date.first.vac) %>%
-  filter(vaccination_events == "vac_50pct") %>%
-  mutate(days.to.50pct_rel = as.numeric(difftime(date, min(date), units = "days")),
-         days.to.50pct_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
-         days.to.50pct_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
-         )
 
 # mean daily rate of vaccinations per million ppl in first 6 months of each country's administration
 vac_rate <- covid %>%
@@ -957,7 +771,7 @@ First we'll dump all the vaccine-related stuff into one big dataframe here:
 ``` {r}
 #big df for vaccine info
 last.vac <- last.timepoint %>% dplyr::select("country"| contains("vacc"))#get just vaccine stuff from  last.timepoint
-vac.df_list <- list(vac_1_dose, vac_2_doses, vac_start_df, vac_10_df, vac_20_df, vac_30_df, vac_50_df, vac_rate, vac_maxrate, last.vac)
+vac.df_list <- list(vac_1_dose, vac_2_doses, vac_start_df, vac_10_df, vac_rate, vac_maxrate, last.vac)
 #drop date and event info since this is contained in col names
 for (i in 1:length(vac.df_list)) {
   vac.df_list[[i]] <- vac.df_list[[i]] %>% dplyr::select(-c(contains("date") | contains("events")))
@@ -1566,11 +1380,11 @@ lasso.train.mse <- mean(na.omit((df.yhat$VSI - df.yhat$lasso)^2))
 rf.train.mse <- mean(na.omit((df.yhat$VSI - df.yhat$rf)^2))
 regsub.train.mse <- mean(na.omit((df.yhat$VSI - df.yhat$regsub)^2))
 nn.train.mse <- mean((df.yhat$VSI - df.yhat$V1)^2)
-df.testerr
 
 # create a table of all models' testing errors
 df.testerr <- data.frame(model=c('full.lm', 'LASSO', 'RandomForest', 'RegSub', 'NN','full.ensemble'),
                  train.mse=c(full.lm.train.mse, lasso.train.mse, rf.train.mse, regsub.train.mse, nn.train.mse, en.train.mse))
+df.testerr
 
 #can we reduce error even further by weighting the predictions from different models?
 weight.list <- c(1, 0.5, 3, 1.25, 1)
@@ -1783,6 +1597,35 @@ covid_1yr <- covid %>%
 colnames(covid_1yr)[2:19] <- paste(colnames(covid_1yr)[2:19], "1yr", sep = "_") #add suffix
 #covid_1yr <- covid_1yr[, which(colMeans(!is.na(covid_1yr)) > 0.5)] #remove cols with NA > 50%
 #sum(is.na(covid_1yr$cumulative_total_cases))
+
+#days until country reports vaccinating 20% of pop
+vac_20_df <- covid %>%
+  dplyr::select(country, date, vaccination_events, date.first.vac) %>%
+  filter(vaccination_events == "vac_20pct") %>%
+  mutate(days.to.20pct_rel = as.numeric(difftime(date, min(date), units = "days")),
+         days.to.20pct_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
+         days.to.20pct_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
+         )
+  #nrow(vac_20_df)
+
+#days until country reports vaccinating 30% of pop
+vac_30_df <- covid %>%
+  dplyr::select(country, date, vaccination_events, date.first.vac) %>%
+  filter(vaccination_events == "vac_30pct") %>%
+  mutate(days.to.30pct_rel = as.numeric(difftime(date, min(date), units = "days")),
+         days.to.30pct_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
+         days.to.30pct_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
+         )
+  #nrow(vac_30_df)
+
+#days until country reports vaccinating 50% of pop
+vac_50_df <- covid %>%
+  dplyr::select(country, date, vaccination_events, date.first.vac) %>%
+  filter(vaccination_events == "vac_50pct") %>%
+  mutate(days.to.50pct_rel = as.numeric(difftime(date, min(date), units = "days")),
+         days.to.50pct_abs = as.numeric(difftime(date, "2020-12-01", units = "days")),
+         days.to.50pct_fromstart = as.numeric(difftime(date, date.first.vac, units = "days"))
+         )
 
 ### merging all COVID data 
 covid.df_list <- list(covid_prevac, covid_maxrate, last.case, vac.dump, covid_1yr)
