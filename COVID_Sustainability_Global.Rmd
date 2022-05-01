@@ -1112,7 +1112,7 @@ Anova(lm.full)
 ```
 
 Now we refine our model by backward selection. 
-```{r}
+```{r results = 'asis'}
 # remove non-significant variables
 lm.full.1.refined <- update(lm.full, .~. -cumulative_total_cases_per_hundred_prevac 
                             -GDP.PerCapita.Current_avg
