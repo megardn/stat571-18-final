@@ -34,7 +34,7 @@ pacman::p_load(tidyverse, dplyr, ggplot2, ggthemes, data.table, lubridate,
                GGally, RColorBrewer, ggsci, plotROC, usmap,
                plotly, ggpubr, vistime, skimr, glmnet, dgCMatrix, leaps, car, 
                keras, neuralnet, tensorflow, missForest, corrplot, tree, randomForest, fastDummies,
-               rworldmap, RColorBrewer, classInt, matrixStats)
+               rworldmap, RColorBrewer, classInt, matrixStats, kableExtra, stargazer)
 ```
 
 # Executive Summary
@@ -967,15 +967,15 @@ Selected variables:
 * `GDP.PerCapita.Current_avg` - current GDP per capita, averaged over 17 years
 * `ConsumerPriceInflation_avg` - how much a country was affected by price inflation, averaged over 17 years
 
-
-```{r}
+We further refine our model by backward selection. 
+```{r results='asis'}
 # economic factors lm
 lm.econ.1 <- lm(data = data.train, formula = VSI ~ ExportGoodsServices.GDP_avg + 
                   FinalConsumptionExpenditure.GDP_avg + 
                   GDP.Current_avg + 
                   GDP.PerCapita.Current_avg +
                   ConsumerPriceInflation_avg)
-summary(lm.econ.1)
+#summary(lm.econ.1)
 
 # remove non-significant variables w backward selection
 lm.econ.1.refined <- update(lm.econ.1, .~. -ExportGoodsServices.GDP_avg)
@@ -985,7 +985,9 @@ lm.econ.2.refined <- update(lm.econ.1.refined, .~. -FinalConsumptionExpenditure.
 #summary(lm.econ.2.refined)
 
 lm.econ.3.refined <- update(lm.econ.2.refined, .~. -GDP.Current_avg)
-summary(lm.econ.3.refined)
+#summary(lm.econ.3.refined)
+
+stargazer(lm.econ.1, lm.econ.1.refined, lm.econ.2.refined, lm.econ.3.refined, type = "html")
 
 ```
    
@@ -1002,17 +1004,21 @@ Selected variables:
 * `monthly.new.deaths.per.100_max` - max monthly death rate reached prior to vaccination start
 * `cumulative_total_deaths_per_hundred_prevac` - cumulative number of deaths on last report prior to vaccinations beginning in each country, normalized by population
 
-```{r}
+Again, we refine our model by backward selection. 
+
+```{r results = 'asis'}
 # build covid model
 lm.covid.1 <- lm(VSI ~ monthly.new.cases.per.100_max + monthly.new.deaths.per.100_max + cumulative_total_deaths_per_hundred_prevac, data = data.train)
-summary(lm.covid.1)
+#summary(lm.covid.1)
 
 # remove non-significant variables w backward selection
 lm.covid.1.refined <- update(lm.covid.1, .~. -monthly.new.deaths.per.100_max)
 #summary(lm.covid.1.refined)
 
 lm.covid.2.refined <- update(lm.covid.1.refined, .~. -cumulative_total_deaths_per_hundred_prevac)
-summary(lm.covid.2.refined)
+#summary(lm.covid.2.refined)
+
+stargazer(lm.covid.1, lm.covid.1.refined, lm.covid.2.refined, type = "html")
 ```
   
 The peak number of monthly new cases per hundred prior to vaccination start has a significant effect on `VSI`. Therefore, vaccination success seems influenced by a country's peak number of cases prior to starting its vaccination campaign, where a higher number of cases leads to a better vaccination score. This could be explained by the fact that people may have a stronger vaccination incentive when COVID cases are more frequent around them. 
@@ -1049,9 +1055,13 @@ lm.political.1 <- lm(VSI ~ WorldRegion +
                    IndividualsUsingInternet_latest, 
                  data = data.train)
 
-summary(lm.political.1)
+#summary(lm.political.1)
 Anova(lm.political.1)
+```
 
+We refine our model by backward selection. 
+
+```{r}
 # remove non-significant variables w backward selection
 lm.political.1.refined <- update(lm.political.1, .~. -GDP.PerCapita.Current_avg)
 #Anova(lm.political.1.refined)
@@ -1097,14 +1107,17 @@ lm.full <- lm(VSI ~ GDP.PerCapita.Current_avg +
                 RegimeType_avg,
              data = data.train)
 Anova(lm.full)
+```
 
+Now we refine our model by backward selection. 
+```{r}
 # remove non-significant variables
 lm.full.1.refined <- update(lm.full, .~. -cumulative_total_cases_per_hundred_prevac 
                             -GDP.PerCapita.Current_avg
                             -monthly.new.cases.per.100_max 
                             -ConsumerPriceInflation_avg)
-Anova(lm.full.1.refined)
-summary(lm.full.1.refined)
+#Anova(lm.full.1.refined)
+#summary(lm.full.1.refined)
 
 # iterative way
 lm.full.1.refined <- update(lm.full, .~. -monthly.new.cases.per.100_max)
@@ -1113,7 +1126,7 @@ lm.full.2.refined <- update(lm.full.1.refined, .~. -GDP.PerCapita.Current_avg)
 # Anova(lm.full.2.refined)
 lm.full.3.refined <- update(lm.full.2.refined, .~. -ConsumerPriceInflation_avg)
 Anova(lm.full.3.refined)
-summary(lm.full.3.refined)
+#summary(lm.full.3.refined)
 
 # generating diagnostic plots
 par(mfrow = c(1,2), mar = c(5,2,4,2), mgp = c(3,0.5,0)) # plot(fit3) produces several plots
@@ -1126,9 +1139,9 @@ When using all relevant variables found in prior models, it turns out that world
 
 ## LASSO model selection
 
-Let's now try a slightly more data-driven approach, i.e. using LASSO to select the most relevant variables. Dropping some variables first as LASSO doesn't like NAs. 
+Let's now try a slightly more data-driven approach, i.e. using LASSO to select the most relevant variables. 
 
-```{r}
+```{r results = 'asis'}
 # remove all rows containing NAs (LASSO does not work without this step) - lost 9 rows :(
 data.train.sub <- na.omit(data.train)
 #nrow(data.train.sub)
@@ -1163,7 +1176,8 @@ wsd.avg.vsi.lasso <-  data.train.sub %>%
 
 # run relaxed LASSO
 fit.1se.lm <- lm(VSI~., data = wsd.avg.vsi.lasso) 
-summary(fit.1se.lm) 
+#summary(fit.1se.lm) 
+stargazer(fit.1se.lm, type = "html")
 ```
 
 LASSO results using the `coef.1se`  on `r nrow(data.train.sub)` complete countries suggest again that life expectancy is an important predictor of `VSI`. In addition, the LASSO approach selected the 17 year average number of individuals using internet. When feeding these into a linear model, both have a significant effect on `VSI`.  
