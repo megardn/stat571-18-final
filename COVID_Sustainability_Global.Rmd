@@ -887,7 +887,7 @@ Based on the distribution plot, we can see that Somalia appears to be the countr
 
 # Compiling the Final Dataset
 
-We'll write our final, cleaned dataset by joining our WSD predictors, prevaccination COVID case and death predictors, and the VSI. 
+We'll write our final, cleaned dataset (`final.df`) by joining our WSD predictors, prevaccination COVID case and death predictors, and the VSI. 
 
 ```{r}
 #merging WSD predictors with cases, deaths & maxrate data
@@ -1333,7 +1333,7 @@ model %>%
   )
 ```
 
-Finally we fit.
+Finally we fit, outputting MSE for both the training data and an internal validation sample (15% of `data.train` that's been cleaned, imputed and normalized for NN input).
 
 ```{r}
 set_random_seed(10)
@@ -1351,7 +1351,7 @@ min.epoch <- which.min(fit.nn$metrics$val_loss)
 # fit.nn$metrics$loss[min.epoch]
 ```
 
-The lowest MSE calculated on the internal validation sample (15% of `data.train` that's been cleaned, imputed and normalized for NN input) is `r fit.nn$metrics$val_loss[min.epoch]` at the `r min.epoch`. Now that we've defined our model, we can refit it without the internal validation split and using `r min.epoch` epochs.
+The lowest MSE calculated on the internal validation sample is `r fit.nn$metrics$val_loss[min.epoch]` at the `r min.epoch`. Now that we've defined our model, we can refit it without the internal validation split and using `r min.epoch` epochs.
 
 ```{r}
 # set seed for keras
@@ -1388,7 +1388,7 @@ The MSE of this model is now `r fit.nn.full$metrics$loss[min.epoch]`, slightly l
 
 # Ensemble
 
-Now we'll attempt to create the best model by bagging those created above, averaging the predicted VSI values from each model.
+Now we'll attempt to create the best model by bagging those created above, averaging the predicted VSI values from each model. Each country in the training data's VSI is estimated by each model and scores are compiled in the dataframe below. An ensemble score is then estimated by averaging across the models.
 
 ```{r}
 set_random_seed(10)
@@ -1402,6 +1402,7 @@ nn.list <- model2 %>% predict(data_xtrain) %>% unname()
 df.yhat <- cbind(df.yhat, as.data.frame(nn.list))
 df.yhat <- df.yhat %>%
   mutate(en.pred = rowMeans(df.yhat[ , c(2:6)], na.rm=TRUE))
+head(df.yhat)
 en.train.mse <- mean((df.yhat$VSI - df.yhat$en.pred)^2)
 en.train.mse
 ```
@@ -1444,6 +1445,7 @@ nn.list.val <- model2 %>% predict(data_xval) %>% unname()
 validaiton.df.yhat <- cbind(validaiton.df.yhat, as.data.frame(nn.list.val))
 validaiton.df.yhat <- validaiton.df.yhat %>%
   mutate(weighted.pred = rowWeightedMeans(as.matrix(validaiton.df.yhat[ , c(2:6)]), w=weight.list, na.rm=TRUE))
+head(validation.df.yhat)
 weighted.val.mse <- mean((validaiton.df.yhat$VSI - validaiton.df.yhat$weighted.pred)^2)
 weighted.val.mse
 ```
