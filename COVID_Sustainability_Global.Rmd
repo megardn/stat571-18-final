@@ -600,7 +600,7 @@ Based on the plots above, we can see that countries had variable vaccination sta
 
 In order to come up with meaningful summary predictors and dependent variables that are compatible with our WSD, we'll next summaries our data on covid cases, deaths, and vaccinations. For our purposes in this project, we'll treat cases and deaths prior to each country's vaccine roll-out as independent variables (predictors) alongside the WSD. Vaccination data will be synthesized using PCA to create a the Vaccination Success Index (VSI), a composite score which we will use to indicate how well a country was able to vaccinate its citizens. 
 
-First, we create a dataframe with the latest COVID data from each country. Every country has some data from March 17, 2022, though some countries' last reported vaccination data was from as early as `r unname(summary(last.timepoint$date.vac_last)[1])`.
+First, we create a dataframe with the latest COVID data from each country. 
 
 ```{r, warning=FALSE}
 #last day with data for each country
@@ -635,6 +635,8 @@ colnames(last.timepoint)[2:43] <- paste(colnames(last.timepoint)[2:43], "last", 
 
 summary(last.timepoint$date.vac_last)
 ```
+
+Every country has some data from March 17, 2022, though some countries' last reported vaccination data was from as early as `r unname(summary(last.timepoint$date.vac_last)[1])`.
 
 Next, we'll calculate predictors from COVID case and death rates prior to the day each country reported starting to vaccinate. 
 
