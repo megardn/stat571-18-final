@@ -565,7 +565,7 @@ Every country has some data from March 17, 2022, though some countries' last rep
 
 ``` {r, warning=FALSE}
 # find the date each country reported starting to vaccinate
-vac_start_df <- covid %>%
+vac_start_df2 <- covid %>%
   dplyr::select(country, date, vaccination_events) %>%
   filter(vaccination_events == "vac_start") %>%
   mutate(days.to.start_rel = as.numeric(difftime(date, min(date), units = "days")),
@@ -573,7 +573,7 @@ vac_start_df <- covid %>%
   rename(date.first.vac = date)
 
 # adding date of first vaccination for each country back to the covid df so it can be used as a cutoff
-vac_start_date <- vac_start_df %>% dplyr::select(country, date.first.vac)
+vac_start_date <- vac_start_df2 %>% dplyr::select(country, date.first.vac)
 covid <- full_join(covid, vac_start_date, by ="country")
 
 # cases & deaths up until vaccines start - USE THIS!
@@ -702,7 +702,7 @@ Now let's merge all these vaccination dfs into one dataframe so we can create a 
 ``` {r}
 #big df for all vaccine info
 last.vac <- last.timepoint %>% dplyr::select("country"| contains("vacc"))#get just vaccine stuff from  last.timepoint
-vac.df_list <- list(vac_1_dose, vac_2_doses, vac_start_df, vac_10_df, vac_rate, vac_maxrate, last.vac)
+vac.df_list <- list(vac_1_dose, vac_2_doses, vac_start_df2, vac_10_df, vac_rate, vac_maxrate, last.vac)
 #drop date and event info since this is contained in col names
 for (i in 1:length(vac.df_list)) {
   vac.df_list[[i]] <- vac.df_list[[i]] %>% dplyr::select(-c(contains("date") | contains("events")))
@@ -1350,7 +1350,7 @@ weighted.val.mse
 
 Unfortunately the MSE from applying our weighted ensemble method to unseen validation data (`r weighted.val.mse`) is much larger than that of our training data (`r weighted.train.mse`). This suggests that the ensemble model and/or one of the underlying models bagged to create it suffered from overfitting.
 
-```{r}
+```{r fig.height=8, fig.width=16}
 #find correlation
 val.cor_value <- cor(validation.df.yhat$VSI, validation.df.yhat$weighted.pred, use = "complete.obs")
 
@@ -1660,7 +1660,7 @@ colnames(covid_1yr)[2:19] <- paste(colnames(covid_1yr)[2:19], "1yr", sep = "_") 
 #sum(is.na(covid_1yr$cumulative_total_cases))
 
 #days until country reports vaccinating 20% of pop
-vac_20_df <- covid %>%
+vac_20_df2 <- covid %>%
   dplyr::select(country, date, vaccination_events, date.first.vac) %>%
   filter(vaccination_events == "vac_20pct") %>%
   mutate(days.to.20pct_rel = as.numeric(difftime(date, min(date), units = "days")),
@@ -1670,7 +1670,7 @@ vac_20_df <- covid %>%
   #nrow(vac_20_df)
 
 #days until country reports vaccinating 30% of pop
-vac_30_df <- covid %>%
+vac_30_df2 <- covid %>%
   dplyr::select(country, date, vaccination_events, date.first.vac) %>%
   filter(vaccination_events == "vac_30pct") %>%
   mutate(days.to.30pct_rel = as.numeric(difftime(date, min(date), units = "days")),
@@ -1680,7 +1680,7 @@ vac_30_df <- covid %>%
   #nrow(vac_30_df)
 
 #days until country reports vaccinating 50% of pop
-vac_50_df <- covid %>%
+vac_50_df2 <- covid %>%
   dplyr::select(country, date, vaccination_events, date.first.vac) %>%
   filter(vaccination_events == "vac_50pct") %>%
   mutate(days.to.50pct_rel = as.numeric(difftime(date, min(date), units = "days")),
