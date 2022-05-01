@@ -80,6 +80,7 @@ We have developed a robust vaccination index capturing a country's past vaccinat
 In conclusion, we were able to quantitatively define the success of each country's vaccination campaign against COVID-19 and to identify key, modifiable factors that may contribute. While the modest predictive ability of our final model on unseen data is one of several limitations to consider in this work, 
 the COVID-19 crisis has presented a multifaceted and evolving challenge to governments across the globe. Therefore, our analysis represents an important contribution to objectively assessing each country's response and identifying factors that should be considered in addressing future global health crises.
 
+
 # Data Preprocessing, EDA & Summary Measures
 
 Before starting to do more involved EDA, we will preprocess our data to ensure we have workable datasets to begin our exploration with. At the completion of preprocessing, we will have two longitudinal dataframes: one containing WSD predictors and one containing COVID case, death, and vaccination data. These dataframes will subsequently be summarized to capture the most important features of each variable by country, enabling us to merge the dataframes and model on these synthesized per-country metrics.
