@@ -987,7 +987,7 @@ lm.econ.2.refined <- update(lm.econ.1.refined, .~. -FinalConsumptionExpenditure.
 lm.econ.3.refined <- update(lm.econ.2.refined, .~. -GDP.Current_avg)
 #summary(lm.econ.3.refined)
 
-stargazer(lm.econ.1, lm.econ.1.refined, lm.econ.2.refined, lm.econ.3.refined, type = "html")
+stargazer(lm.econ.1, lm.econ.1.refined, lm.econ.2.refined, lm.econ.3.refined, type = "html", align=TRUE, title = "Economic Model")
 
 ```
    
@@ -1018,7 +1018,7 @@ lm.covid.1.refined <- update(lm.covid.1, .~. -monthly.new.deaths.per.100_max)
 lm.covid.2.refined <- update(lm.covid.1.refined, .~. -cumulative_total_deaths_per_hundred_prevac)
 #summary(lm.covid.2.refined)
 
-stargazer(lm.covid.1, lm.covid.1.refined, lm.covid.2.refined, type = "html")
+stargazer(lm.covid.1, lm.covid.1.refined, lm.covid.2.refined, type = "html", align=TRUE, title = "Disease Burden Model")
 ```
   
 The peak number of monthly new cases per hundred prior to vaccination start has a significant effect on `VSI`. Therefore, vaccination success seems influenced by a country's peak number of cases prior to starting its vaccination campaign, where a higher number of cases leads to a better vaccination score. This could be explained by the fact that people may have a stronger vaccination incentive when COVID cases are more frequent around them. 
@@ -1125,8 +1125,9 @@ lm.full.1.refined <- update(lm.full, .~. -monthly.new.cases.per.100_max)
 lm.full.2.refined <- update(lm.full.1.refined, .~. -GDP.PerCapita.Current_avg)
 # Anova(lm.full.2.refined)
 lm.full.3.refined <- update(lm.full.2.refined, .~. -ConsumerPriceInflation_avg)
-Anova(lm.full.3.refined)
+#Anova(lm.full.3.refined)
 #summary(lm.full.3.refined)
+stargazer(lm.full.3.refined, type = "html", align=TRUE, title = "Full Model")
 
 # generating diagnostic plots
 par(mfrow = c(1,2), mar = c(5,2,4,2), mgp = c(3,0.5,0)) # plot(fit3) produces several plots
@@ -1177,7 +1178,7 @@ wsd.avg.vsi.lasso <-  data.train.sub %>%
 # run relaxed LASSO
 fit.1se.lm <- lm(VSI~., data = wsd.avg.vsi.lasso) 
 #summary(fit.1se.lm) 
-stargazer(fit.1se.lm, type = "html")
+stargazer(fit.1se.lm, type = "html", align=TRUE, title = "LASSO Model")
 ```
 
 LASSO results using the `coef.1se`  on `r nrow(data.train.sub)` complete countries suggest again that life expectancy is an important predictor of `VSI`. In addition, the LASSO approach selected the 17 year average number of individuals using internet. When feeding these into a linear model, both have a significant effect on `VSI`.  
