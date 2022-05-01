@@ -80,6 +80,13 @@ We have developed a robust vaccination index capturing a country's past vaccinat
 In conclusion, we were able to quantitatively define the success of each country's vaccination campaign against COVID-19 and to identify key, modifiable factors that may contribute. While the modest predictive ability of our final model on unseen data is one of several limitations to consider in this work, 
 the COVID-19 crisis has presented a multifaceted and evolving challenge to governments across the globe. Therefore, our analysis represents an important contribution to objectively assessing each country's response and identifying factors that should be considered in addressing future global health crises.
 
+## Conclusion
+
+We have developed a robust vaccination index capturing a country's past vaccination success and our models highlighted several political, economic, social and health-related factors that have a crucial influence on a country's ability to vaccinate its populace. However, this analysis comes with certain limitations. First, the dataset is constrained to countries for which a sufficient amount of data was present to compute both VSI and summary political, economic, social and health-related factors. While this was possible for a substantial number of countries (n = 99), some countries had to be dropped (n = 126 from the vaccination data, n = 42 from the world sustainability data) including countries such as China, which did not sufficiently report on vaccination data but would be a very important country to include. By obtaining more complete information, future studies may further improve the completeness of this dataset and thereby increase the accuracy of VSI predictions. Moreover, in addition to the factors found to influence VSI in this study, it is likely that other factors influence a country's vaccination success, including more psychosocial and individual characteristics related to beliefs around vaccinations. 
+
+In conclusion, **out of inspiration rn, would be nice to have a little conclusion sentence here**
+
+
 
 # Data Preprocessing
 
@@ -88,6 +95,7 @@ Before starting to do more involved EDA, we will preprocess our data to ensure w
 ## WSD preprocessing
 
 First, we will begin to process the World Sustainability Dataset. 
+
 ```{r}
 data.raw <- read.csv('data/WorldSustainabilityDataset.csv', header = TRUE)
 ```
@@ -103,7 +111,6 @@ data.processed <- na.omit(data.90)
 # How many countries?
 n.countries <- length(unique(data.processed$Country.Name))
 ```
-
 After cleaning, we are left with `n.countries` countries, which is a workable amount. 
 
 ```{r}
@@ -145,11 +152,169 @@ data.processed$WorldBankIncomeClass <- as.factor(data.processed$WorldBankIncomeC
 # Export the processed data
 write.csv(data.processed, "data/WorldSustainabilityData_Processed.csv", row.names = FALSE)
 
+
 #rename and rearrange prior to merge with covid data
 wsd <- data.processed %>% dplyr::select(1:2,"Continent", "WorldRegion", 3:21,23:31) %>% # rearrange a little to group continent & World Region with the other geographic data
   mutate(Country.Name=as.factor(Country.Name)) %>%
   rename(country=Country.Name)
 ```
+
+## COVID preprocessing
+
+Next, we will read in COVID cases/deaths and vaccination data sets. We remove countries with too many NAs and generate new variables indicating cases and deaths per hundred, to account for the total population in each country.  
+
+```{r}
+
+# load cases data
+df_cases <- read.csv("data/worldometer_coronavirus_daily_data.csv")
+
+# transform some variables
+df_cases <- df_cases %>%
+  mutate(country = as.factor(country),
+         date = lubridate::mdy(date),
+         year = lubridate::year(date),
+         month_num = lubridate::month(date),
+         week = as.factor(lubridate::week(date)))
+
+df_cases$month <- month.abb[df_cases$month_num] # convert to month names
+head(df_cases)
+
+#load and merge in population data
+df_pop <- read.csv("data/pop_2021.csv")
+df_pop <- df_pop %>% rename(country=entity) %>%
+  select(country, population)
+df_pop$country<-recode_factor(df_pop$country, "United States" = "USA")
+
+#create new metrics per hundred
+df_cases <- left_join(df_cases, df_pop, by = "country") %>%
+  mutate(daily_new_cases_per_hundred = (daily_new_cases/population)*100,
+        daily_new_deaths_per_hundred = (daily_new_deaths/population)*100,
+        cumulative_total_cases_per_hundred = (cumulative_total_cases/population)*100,
+        active_cases_per_hundred = (active_cases/population)*100,
+        cumulative_total_deaths_per_hundred = (cumulative_total_deaths/population)*100)
+
+# create new monthly and weekly cases/deaths variables
+df_cases <- df_cases %>%
+  # monthly
+  group_by(month_num, year, country) %>% 
+  mutate(
+    monthly_new_cases = sum(daily_new_cases, na.rm = TRUE),
+    monthly_new_deaths = sum(daily_new_deaths, na.rm = TRUE),
+    monthly_new_cases_per_hundred = sum(daily_new_cases_per_hundred, na.rm = TRUE),
+    monthly_new_deaths_per_hundred = sum(daily_new_deaths_per_hundred, na.rm = TRUE),
+    month_year = make_date(year, month_num) 
+  ) %>%
+  ungroup() %>%
+  # weekly
+  group_by(week, year, country, month_num) %>% 
+  mutate(
+    weekly_new_cases = mean(daily_new_cases, na.rm = TRUE),
+    weekly_new_deaths = mean(daily_new_deaths, na.rm = TRUE),
+    weekly_new_cases_per_hundred = sum(daily_new_cases_per_hundred, na.rm = TRUE),
+    weekly_new_deaths_per_hundred = sum(daily_new_deaths_per_hundred, na.rm = TRUE),
+    month_year = make_date(year, month_num)
+    )
+
+# load vaccination data
+df_vac <- read.csv("data/country_vaccinations.csv")
+
+# transform some variables
+df_vac <- df_vac %>%
+  mutate(country = as.factor(country),
+         country = recode_factor(country, `United States` = "USA"),
+         iso_code = as.factor(iso_code),
+         vaccines = as.factor(vaccines),
+         date = lubridate::ymd(date),
+         year = lubridate::year(date),
+         month_num = lubridate::month(date))
+
+df_vac$month <- month.abb[df_vac$month_num] # convert to month names
+
+# keep only countries that report on people vaccinated per hundred as this is one of the more important metrics
+df_vac_nona_clean <- df_vac %>%
+  # filter to keep only non-NA in people_vaccinated_per_hundred
+  drop_na(people_vaccinated_per_hundred) %>%
+  # group by month, year
+  group_by(month, year, country) %>%
+  # select first available value of each month
+  filter(date == min(date))
+
+# merge the cases and vaccinations dataset by country and date keeping all the df_cases rows
+df_merged <- merge(df_cases, 
+                   df_vac_nona_clean[ , -which(names(df_vac_nona_clean) %in% c("year", "month_num","month"))], 
+                   by = c("country", "date"), all.x = TRUE)
+
+
+# find dates corresponding to important vaccination milestones
+df_merged <- df_merged %>%
+  group_by(country) %>%
+  mutate(vaccination_events = as.factor(case_when(people_vaccinated_per_hundred >= 90 ~ "vac_90pct",
+                                        people_vaccinated_per_hundred >= 80 ~ "vac_80pct",
+                                        people_vaccinated_per_hundred >= 70 ~ "vac_70pct",
+                                        people_vaccinated_per_hundred >= 60 ~ "vac_60pct",
+                                        people_vaccinated_per_hundred >= 50 ~ "vac_50pct",
+                                        people_vaccinated_per_hundred >= 40 ~ "vac_40pct",
+                                        people_vaccinated_per_hundred >= 30 ~ "vac_30pct",
+                                        people_vaccinated_per_hundred >= 20 ~ "vac_20pct",
+                                        people_vaccinated_per_hundred >= 10 ~ "vac_10pct",
+                                        people_vaccinated_per_hundred >= 0 & people_vaccinated_per_hundred < 10 ~ "vac_start",
+                                        TRUE ~ "no")),
+         vaccination_events = replace(vaccination_events, duplicated(vaccination_events), NA) # keep only first occurrence of an event
+         )  
+
+# Add percent vaccinated bins AT LATEST REPORTED DATE
+bins_df <- df_vac_nona_clean %>%
+  group_by(country) %>%
+  filter(date == max(date)) %>% # filter for the last reported date in each country
+  # create new binning variable
+  mutate(binned_people_vaccinated_per_hundred = case_when(people_vaccinated_per_hundred < 10 ~ "Under 10%", 
+                                                          people_vaccinated_per_hundred >= 10 & people_vaccinated_per_hundred < 20 ~ "10-20%",
+                                                          people_vaccinated_per_hundred >= 20 & people_vaccinated_per_hundred < 30 ~ "20-30%",
+                                                          people_vaccinated_per_hundred >= 30 & people_vaccinated_per_hundred < 40 ~ "30-40%",
+                                                          people_vaccinated_per_hundred >= 40 & people_vaccinated_per_hundred < 50 ~ "40-50%",
+                                                          people_vaccinated_per_hundred >= 50 & people_vaccinated_per_hundred < 60 ~ "50-60%",
+                                                          people_vaccinated_per_hundred >= 60 & people_vaccinated_per_hundred < 70 ~ "60-70%",
+                                                          people_vaccinated_per_hundred >= 70 & people_vaccinated_per_hundred < 80 ~ "70-80%",
+                                                          people_vaccinated_per_hundred >= 80 & people_vaccinated_per_hundred < 90 ~ "80-90%",
+                                                          people_vaccinated_per_hundred >= 90 ~ "Above 90%"
+                                                          )) %>%
+  select(country, binned_people_vaccinated_per_hundred)
+
+# merge with main
+df_merged <- merge(df_merged, bins_df, by = c("country"), all.x = TRUE)
+
+# checking that there are no countries with more than 10% vaccinated at their vac_start mark
+df_merged %>%
+  filter(vaccination_events == "vac_start" & people_vaccinated_per_hundred > 10) %>%
+  select(country, vaccination_events, people_vaccinated_per_hundred)
+
+# find dates corresponding to important vaccination milestones
+df_merged <- df_merged %>%
+  group_by(country) %>%
+  mutate(vaccine_dose_events = as.factor(case_when(total_vaccinations_per_hundred >= 300 ~ "3_doses",
+                                                   total_vaccinations_per_hundred >= 200 ~ "2_doses",
+                                                   total_vaccinations_per_hundred >= 100 ~ "1_dose",
+                                                   TRUE ~ "no")),
+         vaccine_dose_events = replace(vaccine_dose_events, duplicated(vaccine_dose_events), NA) # keep only first occurrence of an event
+         )  
+
+# let's look at df_merged
+head(df_merged)
+dim(df_merged)
+
+# save merged df (this will be used to merge with the sustainability data)
+write.csv(df_merged, "data/covid_cases_vaccines_clean.csv")
+covid <- df_merged %>% ungroup()
+save(covid, file = "data/covid_cases_vaccines_clean.Rda")
+
+```
+
+
+# WSD EDA & Summary Values
+
+To start, we'll try several different methods of summarizing the longitudinal WSD data into a single "timepoint". We selected the latest data reported for each country (restricted to 2016 or later) and calculated: the average of each parameter over time (2001 to 2018); the average of the last 3 years of data (2016-2018); and the relative and absolute change in each parameter over time (2001-2018). In order to maximize completeness and recency of the dataset while minimizing colinearity, we decided to use each country's latest data and data averaged over 17 years in our models below *question - except nns?*. Code for each unused summary dataframe can be found in the appendix.
+
+
 
 ## COVID preprocessing
 
@@ -318,6 +483,7 @@ To start, we'll try several different methods of summarizing the longitudinal WS
 
 First we extract just the last year of reported data for each country, restricted to 2016 or later. As seen below, the majority of countries have 2018 data, though we are able to preserve an additional 23 countries by reaching back to 2016 data. 
 
+
 ```{r}
 # latest data for each country, restricted to 2016 or later
 wsd.latest <- wsd %>% arrange(Year) %>%
@@ -421,9 +587,154 @@ head(wsd.nocor)
 
 # COVID EDA & Summary Values
 
-In order to come up with meaningful summary predictors and dependent variables that are compatible with our WSD, we'll next summarize our data on COVID cases, deaths, and vaccinations. For our purposes in this project, we'll treat cases and deaths prior to each country's vaccine roll-out as independent variables (predictors) alongside the WSD. Vaccination data will be synthesized using PCA to create a the Vaccination Success Index (VSI), a composite score which we will use to indicate how well a country was able to vaccinate its citizens. 
+## EDA
 
-First, we create a dataframe with the latest COVID data from each country. Every country has some data from March 17, 2022, though some countries' last reported vaccination data was from as early as `unname(summary(last.timepoint$date.vac_last)[1])`.
+We will start by visualizing some of the most relevant variables and patterns in the cases, deaths and vaccinations data.
+
+```{r}
+# total people vaccinated per hundred
+plot_vac_percent <- covid %>%
+  ggplot(aes(x = date, y = people_vaccinated_per_hundred, color = country, group = country)) + 
+    geom_line(show.legend = FALSE) + 
+    theme_bw() +
+    ggtitle("People vaccinated with respect to the country's total population (%)") +
+    theme(legend.position="bottom")
+
+ggplotly(plot_vac_percent) # generate interactive plot
+```
+
+
+```{r}
+# total vaccine doses per hundred
+plot_total_vac <- covid %>%
+  ggplot(aes(x = date, y = total_vaccinations_per_hundred, color = country, group = country)) + 
+    geom_line(show.legend = FALSE) + 
+    theme_bw() +
+    ggtitle("Total number of vaccine doses administered per 100 people in the total population (%)") +
+    theme(legend.position="bottom")
+
+ggplotly(plot_total_vac) # generate interactive plot
+```
+
+There is quite a wide range of vaccination rates over time, with some countriesreaching high levels of vaccination at a very fast rate such as Gibraltar and Cuba, some countries showing more progressively increasing rates (e.g., European countries) and some countries having low vaccination rates up until today. 
+
+Let's bin countries by their latest achieved vaccination rate (per hundred to account for their total populations):
+
+```{r}
+# select the most recent reported vaccination percent for every country
+box_pct_vac <- covid %>%
+  drop_na(people_vaccinated_per_hundred) %>%
+  group_by(month, year, country) %>%
+  filter(date == min(date)) %>% # select first available value of each month
+  group_by(country) %>%
+  filter(date == max(date)) %>%
+  ggplot(aes(x = forcats::fct_reorder(binned_people_vaccinated_per_hundred, -people_vaccinated_per_hundred, .fun = median), y = people_vaccinated_per_hundred, 
+             group = binned_people_vaccinated_per_hundred, fill = binned_people_vaccinated_per_hundred, color = binned_people_vaccinated_per_hundred)) +
+  geom_boxplot(alpha = 0.5) +
+  geom_jitter(aes(text=sprintf("Country: %s<br> Rate: %s", country, people_vaccinated_per_hundred))) +
+  labs(title = "Countries binned by their current vaccination rate",
+       x = "Current vaccination rates (March 2022)",
+       y = "Percent people vaccinated per 100 in total population",
+       color = "",
+       fill = "") +
+  theme_bw()
+
+ggplotly(box_pct_vac, tooltip = "text")
+
+```
+
+As we can see, vaccination rates are currently sill very variables across the world. 
+
+Let's now pick a few countries to examine the evolution of the number of cases with respect to important vaccination milestones, such as: 
+
+* vaccination start
+* having 30% of the population vaccinated
+* having 50% of the population vaccinated
+* having 70% of the population vaccinated
+* having 90% of the population vaccinated
+
+Keep in mind that some countries have not yet reached some of these milestones as of today and therefore, a different number of milestones may be present for each country represented below. 
+
+```{r}
+# filter some countries
+vac_events_sub <- covid %>%
+  filter(country %in% c("USA", "Brazil", "Cuba", "Italy", "France", "Germany", "Japan", "India", "Australia", "South Africa", "Egypt", "Sudan")) 
+
+# create vaccination start df
+vac_start_df <- vac_events_sub %>%
+  select(country, date, vaccination_events) %>%
+  filter(vaccination_events == "vac_start")
+
+# create vaccination 30% df
+vac_30_df <- vac_events_sub %>%
+  select(country, date, vaccination_events) %>%
+  filter(vaccination_events == "vac_30pct")
+
+# create vaccination 30% df
+vac_50_df <- vac_events_sub %>%
+  select(country, date, vaccination_events) %>%
+  filter(vaccination_events == "vac_50pct")
+
+# create vaccination 30% df
+vac_70_df <- vac_events_sub %>%
+  select(country, date, vaccination_events) %>%
+  filter(vaccination_events == "vac_70pct")
+
+# create vaccination 30% df
+vac_90_df <- vac_events_sub %>%
+  select(country, date, vaccination_events) %>%
+  filter(vaccination_events == "vac_90pct")
+
+
+# daily cases with weekly average number of new cases
+plot_cases_weekly <- vac_events_sub %>%
+  ggplot() + 
+    geom_histogram(aes(x = date, y = daily_new_cases, color = country, group = country, fill = country), 
+                   stat = "identity", alpha = 0.5, binwidth = 0.1) +
+    geom_line(aes(x = date, y = weekly_new_cases), color = "darkblue", show.legend = FALSE) + 
+    facet_wrap(~country) +
+    # this will generate some warnings when not all countries have all milestones, nothing to worry about
+    geom_vline(data = vac_start_df, aes(xintercept = as.numeric(date), text = sprintf("Start date: %s", date)), linetype = 2, color = "black") +
+    geom_vline(data = vac_30_df, aes(xintercept = as.numeric(date), text = sprintf("30 pct vaccinated: %s", date)), linetype = 2, color = "grey40") +
+    geom_vline(data = vac_50_df, aes(xintercept = as.numeric(date), text = sprintf("50 pct vaccinated: %s", date)), linetype = 2, color = "grey50") +
+    geom_vline(data = vac_70_df, aes(xintercept = as.numeric(date), text = sprintf("70 pct vaccinated: %s", date)), linetype = 2, color = "grey60") +
+    geom_vline(data = vac_90_df, aes(xintercept = as.numeric(date), text = sprintf("90 pct vaccinated: %s", date)), linetype = 2, color = "grey70") +
+    # geom_text(data = vac_start_df, aes(x = as.Date(date), y = 750000, label = date)) + # add static event labels
+    theme_bw() +
+    ggtitle("Worldwide daily new cases and vaccination milestones") +
+    theme(legend.position="bottom", axis.text.x = element_text(angle = 45, vjust = 0.5, hjust = 1))
+
+ggplotly(plot_cases_weekly, tooltip = "text")
+
+# and the number of new deaths?
+plot_deaths_weekly <- vac_events_sub %>%
+  ggplot() + 
+    geom_histogram(aes(x = date, y = daily_new_deaths, color = country, group = country, fill = country), 
+                   stat = "identity", alpha = 0.5, binwidth = 0.1) +
+    geom_line(aes(x = date, y = weekly_new_deaths), color = "darkblue", show.legend = FALSE) + 
+    facet_wrap(~country) +
+  # this will generate some warnings when not all countries have all milestones, nothing to worry about
+    geom_vline(data = vac_start_df, aes(xintercept = as.numeric(date), text = sprintf("Start date: %s", date)), linetype = 2, color = "black") +
+    geom_vline(data = vac_30_df, aes(xintercept = as.numeric(date), text = sprintf("30 pct vaccinated: %s", date)), linetype = 2, color = "grey40") +
+    geom_vline(data = vac_50_df, aes(xintercept = as.numeric(date), text = sprintf("50 pct vaccinated: %s", date)), linetype = 2, color = "grey50") +
+    geom_vline(data = vac_70_df, aes(xintercept = as.numeric(date), text = sprintf("70 pct vaccinated: %s", date)), linetype = 2, color = "grey60") +
+    geom_vline(data = vac_90_df, aes(xintercept = as.numeric(date), text = sprintf("90 pct vaccinated: %s", date)), linetype = 2, color = "grey70") +
+    # geom_text(data = vac_start_df, aes(x = as.Date(date), y = 750000, label = date)) + # add static event labels
+    theme_bw() +
+    ggtitle("Worldwide daily new deaths and vaccination milestones") +
+    theme(legend.position="bottom", axis.text.x = element_text(angle = 45))
+
+ggplotly(plot_deaths_weekly, tooltip = "text")
+
+```
+
+Based on the plots above, we can see that countries had variable vaccination start dates and that each has reach a different number of vaccination milestones. For instance, Cuba started vaccinating relatively late (May 2021) but had 90% of its population vaccinated by January 2022. In the US, vaccinations started in December 2020 and have reached a rate of 70% in December 2021. It is unclear from these graphs whether vaccinations have direct consequences on the number of cases and/or deaths.  
+
+## Summary measures
+
+In order to come up with meaningful summary predictors and dependent variables that are compatible with our WSD, we'll next summaries our data on covid cases, deaths, and vaccinations. For our purposes in this project, we'll treat cases and deaths prior to each country's vaccine roll-out as independent variables (predictors) alongside the WSD. Vaccination data will be synthesized using PCA to create a the Vaccination Success Index (VSI), a composite score which we will use to indicate how well a country was able to vaccinate its citizens. 
+
+First, we create a dataframe with the latest COVID data from each country. Every country has some data from March 17, 2022, though some countries' last reported vaccination data was from as early as `r unname(summary(last.timepoint$date.vac_last)[1])`.
 
 ```{r, warning=FALSE}
 #last day with data for each country
